@@ -40,12 +40,15 @@ public:
      * @param rf ResourceFinder with configuration parameters (see below).
      * @return true on success (all slaves homed and persisted); false on any error.
      *
-     * @note Expected keys in the ResourceFinder:
-     * - ifname: string NIC name (default: "eth0")
-     * - method: int 37 or 35 (default: 37)
-     * - home-offset: int32 offset (default: 0)
-     * - timeout-ms: int polling timeout (default: 2000)
-     * - restore-on-boot: bool/int (default: 1)
+        * @note Expected keys in the ResourceFinder:
+        * - ifname: string NIC name (default: "eth0")
+        * - method: int 37 or 35 (default: 37)
+        * - home-offset: list of float32 in degrees (default: all zeros). If a single value
+        *   is provided, it is applied to all slaves.
+        * - enc1-mount: list of "motor" or "joint" (optional, default: "motor")
+        * - enc2-mount: list of "motor", "joint" or "none" (optional, default: "none")
+        * - timeout-ms: int polling timeout (default: 2000)
+        * - restore-on-boot: bool/int (default: 1)
      */
     bool run(yarp::os::ResourceFinder& rf);
 

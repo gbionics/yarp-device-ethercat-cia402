@@ -27,7 +27,7 @@ Run the tool with your network interface and desired options:
 yarp-cia402-store-home-position \
 	--ifname eth0 \
 	--method 37 \
-	--home-offset 0 \
+	--home-offset 0.0 \
 	--timeout-ms 2000 \
 	--restore-on-boot 1
 ```
@@ -37,9 +37,12 @@ You will be asked for an interactive confirmation (press ENTER) before proceedin
 ### Options ⚙️
 - `--ifname`: Network interface used by SOEM (default: `eth0`).
 - `--method`: Homing method `37` (current position as home) or `35` (default: `37`).
-- `--home-offset`: Additional home offset in encoder ticks (default: `0`).
+- `--home-offset`: Home offset list in degrees (float32). If a single value is provided, it is
+	applied to all slaves; otherwise the list size must match the number of slaves. Default: all zeros.
 - `--timeout-ms`: Homing attained wait timeout in milliseconds (default: `2000`).
 - `--restore-on-boot`: `1/true` to mark the drive as referenced at boot, `0/false` otherwise (default: `1`).
+- `--enc1-mount`: Optional list of encoder 1 mount positions: `motor` or `joint` (default: `motor`).
+- `--enc2-mount`: Optional list of encoder 2 mount positions: `motor`, `joint`, or `none` (default: `none`).
 
 ### Configuration file (optional) 📝
 You can also provide options through a YARP `.ini` file and pass it with `--from`:
@@ -48,9 +51,11 @@ You can also provide options through a YARP `.ini` file and pass it with `--from
 # store_home.ini
 ifname eth0
 method 37
-home-offset 0
+home-offset (0.0)
 timeout-ms 2000
 restore-on-boot true
+enc1-mount (motor)
+enc2-mount (none)
 ```
 
 Run with:
@@ -61,7 +66,8 @@ yarp-cia402-store-home-position --from store_home.ini
 
 ## What It Does 🧠
 For each discovered slave on `--ifname`:
-- Sets `0x6060 = 6` (Homing mode), writes `0x6098 = method` and optional `0x607C = home-offset`.
+- Sets `0x6060 = 6` (Homing mode), writes `0x6098 = method` and optional `0x607C = home-offset`
+	converted from degrees to device counts using the position-loop encoder and gear ratio.
 - Triggers homing by toggling Controlword bit 4 and polls Statusword until homing attained.
 - Sets vendor flag `0x2005:02` according to `--restore-on-boot`.
 - Saves parameters with `0x1010:01 = 'evas'`.
