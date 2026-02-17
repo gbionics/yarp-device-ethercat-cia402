@@ -945,12 +945,6 @@ struct CiA402MotionControl::Impl
                     const int32_t seedStoreCounts
                         = this->jointDegToTargetCounts(j, currentJointDeg);
 
-                    // Apply motion-sense inversion: counts stored in the drive follow the loop
-                    // shaft.
-                    const int32_t seedDriveCounts = this->invertedMotionSenseDirection[j]
-                                                        ? -seedStoreCounts
-                                                        : seedStoreCounts;
-
                     // If the user already queued a PP target before the first cycle in PP, do
                     // not overwrite it with the seed; otherwise seed the cached target with the
                     // current position so the drive starts from a consistent reference.
