@@ -40,12 +40,18 @@ See protocol_map.md for exact object indices and data types.
 - Unit formulas (counts↔deg, rpm↔deg/s, Nm↔per‑thousand) and gear‑ratio/mount transforms are listed in protocol_map.md and dual_encoder_handling.md.
 
 ## Simple PID gains
+- `use_simple_pid_mode`: when `true` the driver configures `0x2002:00 = 1` (Simple PID);
+  when `false` it configures `0x2002:00 = 2` (Cascaded PID).
 - `simple_pid_kp_nm_per_deg`: joint-side proportional gain list (Nm/deg). Converted to the
   drive’s simple PID units `[mNm/inc]` using the configured encoder source and gear ratio.
 - `simple_pid_kd_nm_s_per_deg`: joint-side derivative gain list (Nm*s/deg). Converted to
   `[mNm*s/inc]` with the same transforms.
-- When both keys are present, the driver forces `0x2002:00 = 1` (simple PID), programs
+- The gain keys are optional as a pair: if exactly one of the two is provided the driver
+  returns an error.
+- When both gain keys are present and `use_simple_pid_mode=true`, the driver programs
   `0x2012:01/03` with the converted gains, and zeroes `0x2012:02` (Ki).
+- When `use_simple_pid_mode=false`, any `simple_pid_*` keys are ignored to avoid applying
+  the simple-PID conversion rules while in cascaded PID structure.
 
 ## Related
 - protocol_map.md — PDO/SDO reference and conversions

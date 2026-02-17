@@ -566,13 +566,13 @@ struct CiA402MotionControl::Impl
         const double shaftDeg = (counts / double(res)) * 360.0; // degrees on the measured shaft
         // Convert to JOINT side depending on mount
 
-        yCInfo(CIA402,
-               "loopCountsToJointDeg j=%zu counts=%.3f res=%u mount=%d -> shaftDeg=%.9f",
-               j,
-               counts,
-               res,
-               static_cast<int>(mount),
-               shaftDeg);
+        yCDebug(CIA402,
+            "loopCountsToJointDeg j=%zu counts=%.3f res=%u mount=%d -> shaftDeg=%.9f",
+            j,
+            counts,
+            res,
+            static_cast<int>(mount),
+            shaftDeg);
 
         if (mount == Mount::Motor)
             return shaftDeg * gearRatioInv[j]; // motor → joint
@@ -676,7 +676,7 @@ struct CiA402MotionControl::Impl
 
 
     bool readSimplePidGains(std::vector<double>& kpNmPerDeg,
-                              std::vector<double>& kdNmSecPerDeg)
+                            std::vector<double>& kdNmSecPerDeg)
     {
         constexpr auto logPrefix = "[readSimplePidGains]";
 
@@ -772,21 +772,20 @@ struct CiA402MotionControl::Impl
             constexpr float32 kiValue = 0.0f;
 
 
-            // print all the components you usedto evaluate the gains
-            yCInfo(CIA402,
-                   "%s j=%zu computing gains: kp_joint=%.6f[Nm/deg], kd_joint=%.6f[Nm*s/deg], "
-                   "gearRatio=%.6f, degPerCount=%.9f => kp_motor=%.6f[mNm/deg], "
-                   "kd_motor=%.6f[mNm*s/deg] => kp_device=%.3f[mNm/inc], kd_device=%.3f[mNm*s/inc]",
-                   logPrefix,
-                   j,
-                   kpNmPerDeg[j],
-                   kdNmSecPerDeg[j],
-                   gearRatio[j],
-                   degPerCount,
-                   kpMotor_mNm_per_deg,
-                   kdMotor_mNmS_per_deg,
-                   kpDevice,
-                   kdDevice);
+                yCDebug(CIA402,
+                    "%s j=%zu computing gains: kp_joint=%.6f[Nm/deg], kd_joint=%.6f[Nm*s/deg], "
+                    "gearRatio=%.6f, degPerCount=%.9f => kp_motor=%.6f[mNm/deg], "
+                    "kd_motor=%.6f[mNm*s/deg] => kp_device=%.3f[mNm/inc], kd_device=%.3f[mNm*s/inc]",
+                    logPrefix,
+                    j,
+                    kpNmPerDeg[j],
+                    kdNmSecPerDeg[j],
+                    gearRatio[j],
+                    degPerCount,
+                    kpMotor_mNm_per_deg,
+                    kdMotor_mNmS_per_deg,
+                    kpDevice,
+                    kdDevice);
 
             const int slaveIdx = firstSlave + static_cast<int>(j);
             const auto errKp = ethercatManager.writeSDO<float32>(slaveIdx, 0x2012, 0x01, kpValue);
@@ -2094,6 +2093,13 @@ bool CiA402MotionControl::open(yarp::os::Searchable& cfg)
     std::vector<double> simplePidKpNmPerDeg; // optional simple PID gains
     std::vector<double> simplePidKdNmSecPerDeg;
 
+    constexpr uint16_t kPositionStrategySimplePid = 1u;
+    constexpr uint16_t kPositionStrategyCascadedPid = 2u;
+    const bool useSimplePidMode
+        = cfg.check("use_simple_pid_mode") ? cfg.find("use_simple_pid_mode").asBool() : true;
+    const uint16_t desiredPositionStrategy
+        = useSimplePidMode ? kPositionStrategySimplePid : kPositionStrategyCascadedPid;
+
     if (!extractListOfDoubleFromSearchable(cfg, "position_window_deg", positionWindowDeg))
         return false;
     if (!extractListOfDoubleFromSearchable(cfg, "timing_window_ms", timingWindowMs))
@@ -2371,7 +2377,13 @@ bool CiA402MotionControl::open(yarp::os::Searchable& cfg)
            static_cast<unsigned>(currentStrategy));
 
 
-    if (!m_impl->setPositionControlStrategy(/*simple PID*/ 1u))
+    yCInfo(CIA402,
+           "%s requested position strategy %u (%s)",
+           logPrefix,
+           static_cast<unsigned>(desiredPositionStrategy),
+           useSimplePidMode ? "simple PID" : "cascaded PID");
+
+    if (!m_impl->setPositionControlStrategy(desiredPositionStrategy))
     {
         yCError(CIA402, "%s failed to configure position control strategy", logPrefix);
         return false;
@@ -2388,37 +2400,51 @@ bool CiA402MotionControl::open(yarp::os::Searchable& cfg)
            logPrefix,
            static_cast<unsigned>(currentStrategy));
 
-    if (programSimplePidGains)
+    const bool enableSimplePidGainsIo = (desiredPositionStrategy == kPositionStrategySimplePid);
+    if (!enableSimplePidGainsIo && programSimplePidGains)
+    {
+        yCWarning(CIA402,
+                  "%s simple PID gains provided but position strategy is not simple PID; skipping "
+                  "0x2012 gains programming",
+                  logPrefix);
+    }
+
+    if (enableSimplePidGainsIo && programSimplePidGains)
     {
         if (!m_impl->configureSimplePidGains(simplePidKpNmPerDeg, simplePidKdNmSecPerDeg))
         {
             yCError(CIA402, "%s failed to program simple PID gains", logPrefix);
             return false;
         }
-    } else
+    } else if (enableSimplePidGainsIo)
     {
         yCDebug(CIA402,
                 "%s skipping simple PID gains programming (config keys not provided)",
                 logPrefix);
     }
 
-    // read the simple PID gains to verify
     std::vector<double> readKp;
     std::vector<double> readKd;
-    if (!m_impl->readSimplePidGains(readKp, readKd))
+    bool simplePidGainsAvailable = false;
+    if (enableSimplePidGainsIo)
     {
-        yCError(CIA402, "%s failed to read back simple PID gains", logPrefix);
-        return false;
-    }
+        // read the simple PID gains to verify
+        if (!m_impl->readSimplePidGains(readKp, readKd))
+        {
+            yCError(CIA402, "%s failed to read back simple PID gains", logPrefix);
+            return false;
+        }
+        simplePidGainsAvailable = true;
 
-    for (size_t j = 0; j < m_impl->numAxes; ++j)
-    {
-        yCInfo(CIA402,
-               "%s j=%zu simple PID gains: Kp=%.6f Nm/deg, Kd=%.6f Nm·s/deg",
-               logPrefix,
-               j,
-               readKp[j],
-               readKd[j]);
+        for (size_t j = 0; j < m_impl->numAxes; ++j)
+        {
+            yCDebug(CIA402,
+                    "%s j=%zu simple PID gains: Kp=%.6f Nm/deg, Kd=%.6f Nm·s/deg",
+                    logPrefix,
+                    j,
+                    readKp[j],
+                    readKd[j]);
+        }
     }
 
     // ---------------------------------------------------------------------
@@ -2632,6 +2658,39 @@ bool CiA402MotionControl::open(yarp::os::Searchable& cfg)
     {
         yCError(CIA402, "%s failed to start device thread", logPrefix);
         return false;
+    }
+
+    yCInfo(CIA402,
+           "%s device thread started (position strategy=%u: %s)",
+           logPrefix,
+           static_cast<unsigned>(desiredPositionStrategy),
+           useSimplePidMode ? "simple PID" : "cascaded PID");
+
+    if (simplePidGainsAvailable)
+    {
+        yCInfo(CIA402, "%s simple PID gains:", logPrefix);
+        for (size_t j = 0; j < m_impl->numAxes; ++j)
+        {
+            const char* axisLabel = nullptr;
+            if (j < m_impl->variables.jointNames.size() && !m_impl->variables.jointNames[j].empty())
+            {
+                axisLabel = m_impl->variables.jointNames[j].c_str();
+            }
+
+            const char* open = axisLabel ? " (" : "";
+            const char* label = axisLabel ? axisLabel : "";
+            const char* close = axisLabel ? ")" : "";
+
+            yCInfo(CIA402,
+                   "%s j=%zu%s%s%s Kp=%.6f Nm/deg, Kd=%.6f Nm\xC2\xB7s/deg",
+                   logPrefix,
+                   j,
+                   open,
+                   label,
+                   close,
+                   readKp[j],
+                   readKd[j]);
+        }
     }
 
     return true;

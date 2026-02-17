@@ -52,13 +52,25 @@ export YARP_DATA_DIRS=/path/to/install/share/yarp:$YARP_DATA_DIRS
 ### Configuration ⚙️
 The plugin requires a configuration file defining the EtherCAT network and device parameters. An example can be found at: [`config/robot/template_1_motor/config.xml`](config/robot/template_1_motor/config.xml)
 
-To drive the internal position loop in *simple PID* mode, provide the new parameters:
+To select the drive internal position controller structure, configure:
+
+- `use_simple_pid_mode` — boolean. When `true` the driver sets `0x2002:00 = 1` (Simple PID);
+   when `false` it sets `0x2002:00 = 2` (Cascaded PID).
+
+To program *simple PID* gains (only meaningful when `use_simple_pid_mode=true`), provide:
 
 - `simple_pid_kp_nm_per_deg` — list of joint-side Kp values in Nm/deg
 - `simple_pid_kd_nm_s_per_deg` — list of joint-side Kd values in Nm*s/deg
 
-When both are present the device converts them to the drive units (mNm/inc and mNm*s/inc),
-forces `0x2002:00 = 1`, and writes `0x2012:01..03` with Ki clamped to zero. See
+The two gain keys are optional as a pair: if exactly one of them is provided the driver
+errors out.
+
+When both are present (and `use_simple_pid_mode=true`) the device converts them to the
+drive units (mNm/inc and mNm*s/inc), and writes `0x2012:01..03` with Ki clamped to zero.
+If `use_simple_pid_mode=false`, any `simple_pid_*` keys are ignored (with a warning) to
+avoid programming/printing `0x2012` with the wrong unit interpretation.
+
+See
 [`doc/protocol_map.md`](./doc/protocol_map.md) for the conversion details.
 
 ### Setting Up `yarprobotinterface` 🛠️
