@@ -2652,6 +2652,74 @@ bool CiA402MotionControl::open(yarp::os::Searchable& cfg)
     }
 
     // ---------------------------------------------------------------------
+    // Startup safety check: verify joints are within limits
+    // ---------------------------------------------------------------------
+    {
+        // Refresh PDO inputs once so feedback reflects the current position
+        if (m_impl->ethercatManager.sendReceive() != ::CiA402::EthercatManager::Error::NoError)
+        {
+            yCError(CIA402, "%s initial send/receive in OPERATIONAL failed", logPrefix);
+            return false;
+        }
+
+        (void)m_impl->readFeedback();
+
+        bool outOfLimits = false;
+        for (size_t j = 0; j < m_impl->numAxes; ++j)
+        {
+            const double posDeg = m_impl->variables.jointPositions[j];
+            const double minDeg = m_impl->limits.minPositionLimitDeg[j];
+            const double maxDeg = m_impl->limits.maxPositionLimitDeg[j];
+
+            const bool minEnabled = (minDeg >= 0.0);
+            const bool maxEnabled = (maxDeg >= 0.0);
+            const bool belowMin = minEnabled && (posDeg < minDeg);
+            const bool aboveMax = maxEnabled && (posDeg > maxDeg);
+
+            if (belowMin || aboveMax)
+            {
+                const char* axisLabel = nullptr;
+                if (j < m_impl->variables.jointNames.size()
+                    && !m_impl->variables.jointNames[j].empty())
+                {
+                    axisLabel = m_impl->variables.jointNames[j].c_str();
+                }
+
+                yCError(CIA402,
+                        "%s joint %zu%s%s%s out of limits: pos=%.6f deg, min=%.6f, max=%.6f. "
+                        "Move the joint within limits before starting.",
+                        logPrefix,
+                        j,
+                        axisLabel ? " (" : "",
+                        axisLabel ? axisLabel : "",
+                        axisLabel ? ")" : "",
+                        posDeg,
+                        minDeg,
+                        maxDeg);
+                outOfLimits = true;
+            }
+        }
+
+        if (outOfLimits)
+        {
+            // Disable power stage before aborting
+            for (size_t j = 0; j < m_impl->numAxes; ++j)
+            {
+                const int slave = m_impl->firstSlave + static_cast<int>(j);
+                auto* rx = m_impl->ethercatManager.getRxPDO(slave);
+                if (rx)
+                {
+                    rx->Controlword = 0x0000;
+                    rx->OpMode = 0;
+                }
+            }
+
+            (void)m_impl->ethercatManager.sendReceive();
+            return false;
+        }
+    }
+
+    // ---------------------------------------------------------------------
     // Launch the device thread
     // ---------------------------------------------------------------------
     if (!this->start())
