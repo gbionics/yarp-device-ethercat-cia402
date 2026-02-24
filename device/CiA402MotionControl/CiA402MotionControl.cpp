@@ -2096,7 +2096,7 @@ bool CiA402MotionControl::open(yarp::os::Searchable& cfg)
     constexpr uint16_t kPositionStrategySimplePid = 1u;
     constexpr uint16_t kPositionStrategyCascadedPid = 2u;
     const bool useSimplePidMode
-        = cfg.check("use_simple_pid_mode") ? cfg.find("use_simple_pid_mode").asBool() : true;
+        = cfg.check("use_simple_pid_mode") ? cfg.find("use_simple_pid_mode").asBool() : false;
     const uint16_t desiredPositionStrategy
         = useSimplePidMode ? kPositionStrategySimplePid : kPositionStrategyCascadedPid;
 
