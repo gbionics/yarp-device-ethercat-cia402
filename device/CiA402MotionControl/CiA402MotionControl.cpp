@@ -2671,10 +2671,8 @@ bool CiA402MotionControl::open(yarp::os::Searchable& cfg)
             const double minDeg = m_impl->limits.minPositionLimitDeg[j];
             const double maxDeg = m_impl->limits.maxPositionLimitDeg[j];
 
-            const bool minEnabled = (minDeg >= 0.0);
-            const bool maxEnabled = (maxDeg >= 0.0);
-            const bool belowMin = minEnabled && (posDeg < minDeg);
-            const bool aboveMax = maxEnabled && (posDeg > maxDeg);
+            const bool belowMin = (posDeg < minDeg);
+            const bool aboveMax = (posDeg > maxDeg);
 
             if (belowMin || aboveMax)
             {
