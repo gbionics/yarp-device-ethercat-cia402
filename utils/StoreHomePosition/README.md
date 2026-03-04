@@ -31,7 +31,7 @@ yarp-cia402-store-home-position \
 	--home-offset 0 \
 	--timeout-ms 2000 \
 	--restore-on-boot 1 \
-	--toml-output encoder_home_data.toml
+	--toml-output joint_calibration_2026_03_04_18_54_35.toml
 ```
 
 You will be asked for an interactive confirmation (press ENTER) before proceeding.
@@ -42,7 +42,7 @@ You will be asked for an interactive confirmation (press ENTER) before proceedin
 - `--home-offset`: Additional home offset in encoder ticks (default: `0`).
 - `--timeout-ms`: Homing attained wait timeout in milliseconds (default: `2000`).
 - `--restore-on-boot`: `1/true` to mark the drive as referenced at boot, `0/false` otherwise (default: `1`).
-- `--toml-output`: Path of the TOML file written after calibration (default: `encoder_home_data.toml`).
+- `--toml-output`: Path of the TOML file written after calibration (default: `joint_calibration_<YYYY>_<MM>_<DD>_<HH>_<MM>_<SS>.toml`, e.g. `joint_calibration_2026_03_04_18_54_35.toml`).
 
 ### Configuration file (optional) 📝
 You can also provide options through a YARP `.ini` file and pass it with `--from`:
@@ -54,7 +54,7 @@ method 37
 home-offset 0
 timeout-ms 2000
 restore-on-boot true
-toml-output encoder_home_data.toml
+toml-output joint_calibration_2026_03_04_18_54_35.toml
 ```
 
 Run with:

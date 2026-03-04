@@ -2,8 +2,11 @@
 // SPDX-License-Identifier: BSD-3-Clause
 
 #include <chrono>
+#include <ctime>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
+#include <sstream>
 #include <thread>
 #include <vector>
 
@@ -358,10 +361,22 @@ bool StoreHome37::run(yarp::os::ResourceFinder& rf)
            homeOffset,
            timeoutMs,
            restoreOnBoot ? "true" : "false");
-    std::string tomlPath = "encoder_home_data.toml";
+    std::string tomlPath;
     if (rf.check("toml-output"))
     {
         tomlPath = rf.find("toml-output").asString();
+    } else
+    {
+        // Generate default filename with current date and time
+        const auto now = std::chrono::system_clock::now();
+        const std::time_t t = std::chrono::system_clock::to_time_t(now);
+        std::tm tm{};
+        localtime_r(&t, &tm);
+        std::ostringstream oss;
+        oss << "joint_calibration_"
+            << std::put_time(&tm, "%Y_%m_%d_%H_%M_%S")
+            << ".toml";
+        tomlPath = oss.str();
     }
 
     yCInfo(CIA402, "Do you want to proceed? (press ENTER to continue)");

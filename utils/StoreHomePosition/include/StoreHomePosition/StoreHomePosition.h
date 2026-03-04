@@ -94,7 +94,7 @@ public:
      * | home-offset      | int32       | Additional home offset written to 0x607C              | @c 0                       |
      * | timeout-ms       | int         | Maximum time (ms) to wait for homing attained         | @c 2000                    |
      * | restore-on-boot  | bool / int  | Set drive restore-on-startup flag (0x2005:02)         | @c true                    |
-     * | toml-output      | string      | Path of the TOML file written after calibration       | @c "encoder_home_data.toml"|
+     * | toml-output      | string      | Path of the TOML file written after calibration       | @c "joint_calibration_YYYY_MM_DD_HH_MM_SS.toml" |
      */
     bool run(yarp::os::ResourceFinder& rf);
 
