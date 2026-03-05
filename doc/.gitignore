@@ -1,0 +1,8 @@
+# Doxygen build output
+_build/
+
+# cppreference tag file (downloaded at build time by build_docs.sh)
+cppreference-doxygen-web.tag.xml
+
+# doxygen-awesome-css (cloned in CI / locally)
+doxygen-awesome-css/

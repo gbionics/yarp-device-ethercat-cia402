@@ -1,4 +1,6 @@
-# Dual-encoder handling (CiA‑402 EtherCAT device)
+# Dual-encoder handling (CiA‑402 EtherCAT device) {#dual_encoder_handling}
+
+[TOC]
 
 ## Summary
 How the driver uses two encoders per axis: mounting semantics, loop sources, feedback selection, shaft transforms, and data pipelines.
