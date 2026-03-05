@@ -1,0 +1,125 @@
+# ---------------------------------------------------------------------------
+# Doxyfile for yarp-device-ethercat-cia402
+# Uses doxygen-awesome-css for a modern look.
+# ---------------------------------------------------------------------------
+
+# -- Project --
+PROJECT_NAME           = "YARP CiA-402 EtherCAT Device"
+PROJECT_NUMBER         = 0.6.0
+PROJECT_BRIEF          = "YARP device plugin for EtherCAT CiA-402 drives"
+PROJECT_LOGO           =
+
+OUTPUT_DIRECTORY       = _build
+
+# -- Paths --
+# Strip the repo root so file listings show relative paths (e.g. device/…)
+# instead of the full absolute filesystem path.
+STRIP_FROM_PATH        = ..
+STRIP_FROM_INC_PATH    = ../src/CiA402/include \
+                         ../device/CiA402MotionControl \
+                         ../utils/StoreHomePosition/include
+
+# -- Input --
+INPUT                  = ../README.md \
+                         ../device/CiA402MotionControl \
+                         ../src/CiA402/include \
+                         ../src/CiA402/src \
+                         ../utils/StoreHomePosition/include \
+                         ../utils/StoreHomePosition/src \
+                         ./main.md \
+                         ./dual_encoder_handling.md \
+                         ./modes_and_setpoints.md \
+                         ./protocol_map.md
+
+FILE_PATTERNS          = *.h *.cpp *.md
+RECURSIVE              = YES
+
+USE_MDFILE_AS_MAINPAGE = main.md
+
+# -- Extraction --
+EXTRACT_ALL            = YES
+EXTRACT_PRIVATE        = NO
+EXTRACT_STATIC         = YES
+
+# -- Source browsing --
+SOURCE_BROWSER         = YES
+INLINE_SOURCES         = NO
+STRIP_CODE_COMMENTS    = NO
+
+# -- Build options --
+BUILTIN_STL_SUPPORT    = YES
+GENERATE_TODOLIST      = YES
+GENERATE_BUGLIST       = YES
+
+# -- Markdown --
+MARKDOWN_SUPPORT       = YES
+AUTOLINK_SUPPORT       = YES
+
+# -- Table of contents --
+# Show up to h4 headings in the per-page TOC ("On this page" sidebar).
+# The doxygen-awesome-interactive-toc.js extension renders this as the
+# right-hand lateral tree that the user requested.
+TOC_INCLUDE_HEADINGS   = 4
+
+# -- Output formats --
+GENERATE_HTML          = YES
+GENERATE_LATEX         = NO
+GENERATE_XML           = NO
+GENERATE_MAN           = NO
+
+# -- HTML --
+HTML_OUTPUT            = html
+HTML_EXTRA_STYLESHEET  = doxygen-awesome-css/doxygen-awesome.css \
+                         doxygen-awesome-css/doxygen-awesome-sidebar-only.css \
+                         doxygen-awesome-css/doxygen-awesome-sidebar-only-darkmode-toggle.css \
+                         custom.css
+HTML_EXTRA_FILES       = doxygen-awesome-css/doxygen-awesome-darkmode-toggle.js \
+                         doxygen-awesome-css/doxygen-awesome-fragment-copy-button.js \
+                         doxygen-awesome-css/doxygen-awesome-paragraph-link.js \
+                         doxygen-awesome-css/doxygen-awesome-interactive-toc.js
+HTML_COLORSTYLE        = LIGHT
+HTML_COLORSTYLE_HUE    = 209
+HTML_COLORSTYLE_SAT    = 255
+HTML_COLORSTYLE_GAMMA  = 113
+
+DISABLE_INDEX          = NO
+GENERATE_TREEVIEW      = YES
+FULL_SIDEBAR           = NO
+TREEVIEW_WIDTH         = 335
+HTML_HEADER            = header.html
+HTML_DYNAMIC_MENUS     = YES
+
+# -- Search --
+SEARCHENGINE           = YES
+
+# -- Graphs --
+HAVE_DOT               = YES
+DOT_IMAGE_FORMAT       = svg
+INTERACTIVE_SVG        = YES
+COLLABORATION_GRAPH    = YES
+INCLUDE_GRAPH          = YES
+INCLUDED_BY_GRAPH      = YES
+CALL_GRAPH             = NO
+CALLER_GRAPH           = NO
+DOT_GRAPH_MAX_NODES    = 100
+
+
+# -- Preprocessing --
+ENABLE_PREPROCESSING   = YES
+MACRO_EXPANSION        = NO
+EXPAND_ONLY_PREDEF     = NO
+
+# -- Warnings --
+QUIET                  = NO
+WARNINGS               = YES
+WARN_IF_UNDOCUMENTED   = YES
+WARN_IF_DOC_ERROR      = YES
+
+# -- External tag files --
+# Link std:: types to cppreference.com.  The tag file is downloaded at
+# build time by build_docs.sh — it is NOT committed to the repo.
+TAGFILES              += "cppreference-doxygen-web.tag.xml=https://en.cppreference.com/w/"
+
+# -- Aliases --
+ALIASES                += "rst=\verbatim embed:rst"
+ALIASES                += "endrst=\endverbatim"

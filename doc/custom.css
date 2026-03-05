@@ -1,0 +1,28 @@
+/* ───────────────────────────────────────────────────────────────────
+ * Custom overrides for the YARP CiA-402 documentation
+ * Applied on top of doxygen-awesome-sidebar-only.
+ * ─────────────────────────────────────────────────────────────────── */
+
+/* Match --side-nav-fixed-width to TREEVIEW_WIDTH in the Doxyfile (335px) */
+html {
+    --side-nav-fixed-width: 335px;
+}
+
+/* ── Search box: make it prominent at the top of the sidebar ────── */
+@media screen and (min-width: 768px) {
+    /* Give the search box some breathing room */
+    #MSearchBox {
+        margin: var(--spacing-small) var(--spacing-medium);
+        width: calc(var(--side-nav-fixed-width) - 2 * var(--spacing-medium)) !important;
+        box-sizing: border-box;
+    }
+
+    #MSearchField {
+        width: calc(100% - 55px) !important;
+    }
+
+    /* Search results dropdown: ensure it's visible on top */
+    #MSearchResultsWindow {
+        z-index: 9999;
+    }
+}

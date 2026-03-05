@@ -1,4 +1,6 @@
-# Control modes and set‑point paths
+# Control modes and set‑point paths {#modes_and_setpoints}
+
+[TOC]
 
 ## Summary
 How YARP control modes map to CiA‑402 operation modes and which targets are used, with brief notes on conversions.

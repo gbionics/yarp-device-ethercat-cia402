@@ -1,4 +1,6 @@
-# EtherCAT protocol map (PDOs and SDOs)
+# EtherCAT protocol map (PDOs and SDOs) {#protocol_map}
+
+[TOC]
 
 ## Summary
 Concise reference of the EtherCAT objects the device uses, where they are mapped, and how they are interpreted. Use this as the single source for indices, types, and meanings.

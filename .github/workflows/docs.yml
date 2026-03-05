@@ -1,0 +1,68 @@
+# ---------------------------------------------------------------
+# GitHub Actions — Build & Deploy Doxygen docs to GitHub Pages
+# ---------------------------------------------------------------
+# Triggers on every push to main (or master).
+# Uses doxygen-awesome-css for a modern theme.
+# Deploys the HTML output to the gh-pages environment.
+
+name: Documentation
+
+on:
+  push:
+    branches: [main, master]
+  # Allow manual trigger from Actions tab
+  workflow_dispatch:
+
+# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow only one concurrent deployment
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -l {0}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Conda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniforge-version: latest
+          channels: conda-forge
+          activate-environment: docs
+          environment-file: doc/environment.yml
+
+      - name: Clone doxygen-awesome-css
+        run: |
+          git clone --depth 1 https://github.com/jothepro/doxygen-awesome-css.git \
+            doc/doxygen-awesome-css
+
+      - name: Generate documentation
+        working-directory: doc
+        run: ./build_docs.sh
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: doc/_build/html
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
