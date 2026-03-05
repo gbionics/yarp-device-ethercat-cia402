@@ -44,6 +44,7 @@ profile over EtherCAT (CoE).
 - [CMake](https://cmake.org/) ≥ 3.8
 - [YARP](https://www.yarp.it/)
 - [SOEM](https://github.com/OpenEtherCATsociety/SOEM)
+- [toml++](https://github.com/marzer/tomlplusplus) (TOML parser for C++)
 - Linux (tested; raw-socket access required for EtherCAT)
 
 ### Build

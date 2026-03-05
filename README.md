@@ -10,6 +10,7 @@ Ensure the following dependencies are installed:
 - [CMake](https://cmake.org/) (version 3.8 or higher)
 - [YARP](https://www.yarp.it/)
 - [SOEM](https://github.com/OpenEtherCATsociety/SOEM)
+- [toml++](https://github.com/marzer/tomlplusplus) (TOML parser for C++)
 
 > **Note**: This device has been tested only on Linux systems.
 
