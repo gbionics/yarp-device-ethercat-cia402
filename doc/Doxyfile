@@ -17,7 +17,8 @@ OUTPUT_DIRECTORY       = _build
 STRIP_FROM_PATH        = ..
 STRIP_FROM_INC_PATH    = ../src/CiA402/include \
                          ../device/CiA402MotionControl \
-                         ../utils/StoreHomePosition/include
+                         ../utils/StoreHomePosition/include \
+                         ../utils/CheckEncoderCalibration/include
 
 # -- Input --
 INPUT                  = ../README.md \
@@ -26,10 +27,13 @@ INPUT                  = ../README.md \
                          ../src/CiA402/src \
                          ../utils/StoreHomePosition/include \
                          ../utils/StoreHomePosition/src \
+                         ../utils/CheckEncoderCalibration/include \
+                         ../utils/CheckEncoderCalibration/src \
                          ./main.md \
                          ./dual_encoder_handling.md \
                          ./modes_and_setpoints.md \
-                         ./protocol_map.md
+                         ./protocol_map.md \
+                         ./check_encoder_calibration.md
 
 FILE_PATTERNS          = *.h *.cpp *.md
 RECURSIVE              = YES
