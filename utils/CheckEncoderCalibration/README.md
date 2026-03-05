@@ -87,7 +87,7 @@ A quick-glance table with one row per slave showing the adjusted-position delta 
 For each slave, two tables (Encoder 1 and Encoder 2) with full comparison:
 
 | Metric                    | Reference (TOML) | Current (Live) | Delta     |
-|:--------------------------|----------------: |---------------:|----------:|
+|:--------------------------|----------------:|---------------:|----------:|
 | Raw position (counts)     | 2461952          | 2461960        | +8        |
 | Raw position (deg)        | 350.753906       | 350.754047     | +0.000141 |
 | Adjusted position (counts)| 2461952          | 2461960        | +8        |
