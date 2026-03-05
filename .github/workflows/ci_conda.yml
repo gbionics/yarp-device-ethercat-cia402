@@ -36,7 +36,7 @@ jobs:
       run: |
         # Dependencies
         conda install cmake cxx-compiler make ninja pkg-config \
-                      "soem>=2.0.0" yarp
+                      "soem>=2.0.0" yarp tomlplusplus
 
     - name: "🔍 Print used environment"
       shell: bash -l {0}

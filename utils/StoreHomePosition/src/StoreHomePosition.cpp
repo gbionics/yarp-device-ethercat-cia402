@@ -2,9 +2,15 @@
 // SPDX-License-Identifier: BSD-3-Clause
 
 #include <chrono>
+#include <ctime>
+#include <fstream>
+#include <iomanip>
 #include <iostream>
+#include <sstream>
 #include <thread>
 #include <vector>
+
+#include <toml++/toml.h>
 
 #include <CiA402/EthercatManager.h>
 #include <CiA402/LogComponent.h>
@@ -27,6 +33,12 @@ static constexpr uint16_t IDX_STORE_PARAMS = 0x1010; // uint32: :01 = 'evas'
 
 static constexpr uint16_t IDX_HOME_VENDOR = 0x2005; // Synapticon: :01 Home, :02 Restore-on-load
 
+// ---- Encoder SDO indices ----
+static constexpr uint16_t IDX_ENC1_CONFIG = 0x2110; // :03 = resolution (counts/rev)
+static constexpr uint16_t IDX_ENC1_DATA   = 0x2111; // :02 = position
+static constexpr uint16_t IDX_ENC2_CONFIG = 0x2112; // :03 = resolution (counts/rev)
+static constexpr uint16_t IDX_ENC2_DATA   = 0x2113; // :02 = position
+
 // ---- Statusword helpers ----
 static inline bool swHomingAttained(uint16_t sw)
 {
@@ -40,7 +52,12 @@ static inline bool swHomingError(uint16_t sw)
 class StoreHome37::Impl
 {
 public:
-    bool run(const std::string& ifname, int8_t hm, int32_t hoff, int timeoutMs, bool restore)
+    bool run(const std::string& ifname,
+             int8_t hm,
+             int32_t hoff,
+             int timeoutMs,
+             bool restore,
+             const std::string& tomlPath)
     {
         // Initialize EtherCAT master
         yCInfo(CIA402, "StoreHome37: initializing EtherCAT on %s", ifname.c_str());
@@ -69,11 +86,109 @@ public:
 
         bool allOk = true;
         for (int s : slaves)
-            allOk &= homeAndPersistSingle(s, hm, hoff, timeoutMs, restore);
+        {
+            allOk = allOk && this->homeAndPersistSingle(s, hm, hoff, timeoutMs, restore);
+        }
+
+        // After calibration, collect encoder data and write TOML
+        if (allOk)
+        {
+            allOk = this->writeEncoderToml(slaves, tomlPath);
+        }
+
         return allOk;
     }
 
 private:
+    bool writeEncoderToml(const std::vector<int>& slaves, const std::string& tomlPath)
+    {
+        toml::table root;
+
+        for (int s : slaves)
+        {
+            const std::string slaveName = "slave_" + std::to_string(s);
+            toml::table slaveTable;
+
+            // Read encoder resolutions (counts per revolution)
+            uint32_t enc1Res = 0;
+            uint32_t enc2Res = 0;
+            (void)mgr.readSDO<uint32_t>(s, IDX_ENC1_CONFIG, 0x03, enc1Res);
+            (void)mgr.readSDO<uint32_t>(s, IDX_ENC2_CONFIG, 0x03, enc2Res);
+
+            // Read encoder 1 feedback (0x2111)
+            uint32_t enc1RawPos = 0;   // 0x2111:01 — raw position (UDINT)
+            int32_t  enc1AdjPos = 0;   // 0x2111:02 — adjusted position (DINT)
+            (void)mgr.readSDO<uint32_t>(s, IDX_ENC1_DATA, 0x01, enc1RawPos);
+            (void)mgr.readSDO<int32_t>(s, IDX_ENC1_DATA, 0x02, enc1AdjPos);
+
+            // Read encoder 2 feedback (0x2113)
+            uint32_t enc2RawPos = 0;   // 0x2113:01 — raw position (UDINT)
+            int32_t  enc2AdjPos = 0;   // 0x2113:02 — adjusted position (DINT)
+            (void)mgr.readSDO<uint32_t>(s, IDX_ENC2_DATA, 0x01, enc2RawPos);
+            (void)mgr.readSDO<int32_t>(s, IDX_ENC2_DATA, 0x02, enc2AdjPos);
+
+            // Compute degrees from adjusted position: degrees = adj * (360.0 / resolution)
+            const double enc1ResInv = enc1Res ? (1.0 / static_cast<double>(enc1Res)) : 0.0;
+            const double enc2ResInv = enc2Res ? (1.0 / static_cast<double>(enc2Res)) : 0.0;
+            const double enc1AdjDeg = static_cast<double>(enc1AdjPos) * enc1ResInv * 360.0;
+            const double enc2AdjDeg = static_cast<double>(enc2AdjPos) * enc2ResInv * 360.0;
+
+            // Compute degrees from raw position
+            const double enc1RawDeg = static_cast<double>(enc1RawPos) * enc1ResInv * 360.0;
+            const double enc2RawDeg = static_cast<double>(enc2RawPos) * enc2ResInv * 360.0;
+
+            // Store encoder 1 data
+            toml::table enc1Table;
+            enc1Table.insert("raw_position", static_cast<int64_t>(enc1RawPos));
+            enc1Table.insert("raw_position_degrees", enc1RawDeg);
+            enc1Table.insert("adjusted_position", static_cast<int64_t>(enc1AdjPos));
+            enc1Table.insert("adjusted_position_degrees", enc1AdjDeg);
+            enc1Table.insert("counts_per_revolution", static_cast<int64_t>(enc1Res));
+            enc1Table.insert("raw_to_degrees_factor", enc1Res ? (360.0 / static_cast<double>(enc1Res)) : 0.0);
+            slaveTable.insert("encoder1", enc1Table);
+
+            // Store encoder 2 data
+            toml::table enc2Table;
+            enc2Table.insert("raw_position", static_cast<int64_t>(enc2RawPos));
+            enc2Table.insert("raw_position_degrees", enc2RawDeg);
+            enc2Table.insert("adjusted_position", static_cast<int64_t>(enc2AdjPos));
+            enc2Table.insert("adjusted_position_degrees", enc2AdjDeg);
+            enc2Table.insert("counts_per_revolution", static_cast<int64_t>(enc2Res));
+            enc2Table.insert("raw_to_degrees_factor", enc2Res ? (360.0 / static_cast<double>(enc2Res)) : 0.0);
+            slaveTable.insert("encoder2", enc2Table);
+
+            // Also store device name
+            slaveTable.insert("name", mgr.getName(s));
+
+            root.insert(slaveName, slaveTable);
+
+            yCInfo(CIA402,
+                   "s%02d: enc1 raw=%u adj=%d adj_deg=%.6f (res=%u), "
+                   "enc2 raw=%u adj=%d adj_deg=%.6f (res=%u)",
+                   s,
+                   enc1RawPos,
+                   enc1AdjPos,
+                   enc1AdjDeg,
+                   enc1Res,
+                   enc2RawPos,
+                   enc2AdjPos,
+                   enc2AdjDeg,
+                   enc2Res);
+        }
+
+        // Write TOML to file
+        std::ofstream ofs(tomlPath);
+        if (!ofs.is_open())
+        {
+            yCError(CIA402, "StoreHome37: cannot open %s for writing", tomlPath.c_str());
+            return false;
+        }
+        ofs << root;
+        ofs.close();
+        yCInfo(CIA402, "StoreHome37: encoder data written to %s", tomlPath.c_str());
+        return true;
+    }
+
     bool homeAndPersistSingle(int s, int8_t hm, int32_t hoff, int timeoutMs, bool restore)
     {
         // -- 1) OpMode = Homing (6)
@@ -246,8 +361,26 @@ bool StoreHome37::run(yarp::os::ResourceFinder& rf)
            homeOffset,
            timeoutMs,
            restoreOnBoot ? "true" : "false");
+    std::string tomlPath;
+    if (rf.check("toml-output"))
+    {
+        tomlPath = rf.find("toml-output").asString();
+    } else
+    {
+        // Generate default filename with current date and time
+        const auto now = std::chrono::system_clock::now();
+        const std::time_t t = std::chrono::system_clock::to_time_t(now);
+        std::tm tm{};
+        localtime_r(&t, &tm);
+        std::ostringstream oss;
+        oss << "joint_calibration_"
+            << std::put_time(&tm, "%Y_%m_%d_%H_%M_%S")
+            << ".toml";
+        tomlPath = oss.str();
+    }
+
     yCInfo(CIA402, "Do you want to proceed? (press ENTER to continue)");
     std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
 
-    return m_impl->run(ifname, method, homeOffset, timeoutMs, restoreOnBoot);
+    return m_impl->run(ifname, method, homeOffset, timeoutMs, restoreOnBoot, tomlPath);
 }

@@ -66,6 +66,7 @@ set(CMAKE_C_EXTENSIONS OFF)
 # Find YARP and include the CMake code to compile plugins
 find_package(YARP REQUIRED)
 find_package(soem REQUIRED)
+find_package(tomlplusplus REQUIRED)
 
 # macro to automatize the process of creating a YARP device
 include(AddLibrary)
