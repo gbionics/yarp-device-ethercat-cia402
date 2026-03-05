@@ -385,7 +385,7 @@ bool CheckEncoderCalibration::run(yarp::os::ResourceFinder& rf)
     {
         yCError(CIA402,
                 "CheckEncoderCalibration: missing required parameter 'toml-input' "
-                "(path to the reference TOML file from StoreHome37)");
+                "(path to the reference TOML file from store-home-position)");
         return false;
     }
     const std::string tomlPath = rf.find("toml-input").asString();
