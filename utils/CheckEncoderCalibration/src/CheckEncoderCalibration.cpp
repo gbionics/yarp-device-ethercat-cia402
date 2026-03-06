@@ -22,6 +22,17 @@
 
 using namespace CiA402;
 
+static std::tm getLocalTime(const std::time_t& t)
+{
+    std::tm tm{};
+#ifdef _WIN32
+    localtime_s(&tm, &t);
+#else
+    localtime_r(&t, &tm);
+#endif
+    return tm;
+}
+
 // ---- Encoder SDO indices (same as StoreHomePosition) ----
 static constexpr uint16_t IDX_ENC1_CONFIG = 0x2110; // :03 = resolution (counts/rev)
 static constexpr uint16_t IDX_ENC1_DATA = 0x2111;   // :01 = raw position, :02 = adjusted position
@@ -317,8 +328,7 @@ private:
         // ---- Header ----
         const auto now = std::chrono::system_clock::now();
         const std::time_t t = std::chrono::system_clock::to_time_t(now);
-        std::tm tm{};
-        localtime_r(&t, &tm);
+        const std::tm tm = getLocalTime(t);
         std::ostringstream tsStr;
         tsStr << std::put_time(&tm, "%Y-%m-%d %H:%M:%S");
 
@@ -400,8 +410,7 @@ bool CheckEncoderCalibration::run(yarp::os::ResourceFinder& rf)
         // Generate default filename with current date and time
         const auto now = std::chrono::system_clock::now();
         const std::time_t t = std::chrono::system_clock::to_time_t(now);
-        std::tm tm{};
-        localtime_r(&t, &tm);
+        const std::tm tm = getLocalTime(t);
         std::ostringstream oss;
         oss << "encoder_calibration_check_" << std::put_time(&tm, "%Y_%m_%d_%H_%M_%S") << ".md";
         reportPath = oss.str();

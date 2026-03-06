@@ -22,6 +22,17 @@
 using namespace CiA402;
 using namespace std::chrono_literals;
 
+static std::tm getLocalTime(const std::time_t& t)
+{
+    std::tm tm{};
+#ifdef _WIN32
+    localtime_s(&tm, &t);
+#else
+    localtime_r(&t, &tm);
+#endif
+    return tm;
+}
+
 // ---- CiA-402 / Synapticon indices ----
 static constexpr uint16_t IDX_CONTROLWORD = 0x6040; // uint16
 static constexpr uint16_t IDX_STATUSWORD = 0x6041; // uint16
@@ -370,8 +381,7 @@ bool StoreHome37::run(yarp::os::ResourceFinder& rf)
         // Generate default filename with current date and time
         const auto now = std::chrono::system_clock::now();
         const std::time_t t = std::chrono::system_clock::to_time_t(now);
-        std::tm tm{};
-        localtime_r(&t, &tm);
+        const std::tm tm = getLocalTime(t);
         std::ostringstream oss;
         oss << "joint_calibration_"
             << std::put_time(&tm, "%Y_%m_%d_%H_%M_%S")
