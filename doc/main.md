@@ -25,6 +25,9 @@ profile over EtherCAT (CoE).
   converted to drive units.
 - **Home-position utility** — standalone tool to set and persist homing
   parameters on the drive's non-volatile memory.
+- **Calibration check utility** — read-only diagnostic that compares live
+  encoder readings against a reference TOML snapshot and produces a Markdown
+  report.
 
 ## Documentation sections
 
@@ -36,6 +39,8 @@ profile over EtherCAT (CoE).
 | @ref yarp::dev::CiA402MotionControl | Main device driver API reference. |
 | @ref CiA402::EthercatManager | Low-level EtherCAT master (SOEM wrapper). |
 | @ref CiA402::StoreHome37 | Home-position persistence utility. |
+| @subpage check_encoder_calibration | Encoder calibration check utility — compare live readings vs. reference TOML. |
+| @ref CiA402::CheckEncoderCalibration | Calibration-check utility API reference. |
 
 ## Getting started
 
