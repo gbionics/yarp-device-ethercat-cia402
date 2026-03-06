@@ -21,8 +21,7 @@ STRIP_FROM_INC_PATH    = ../src/CiA402/include \
                          ../utils/CheckEncoderCalibration/include
 
 # -- Input --
-INPUT                  = ../README.md \
-                         ../device/CiA402MotionControl \
+INPUT                  = ../device/CiA402MotionControl \
                          ../src/CiA402/include \
                          ../src/CiA402/src \
                          ../utils/StoreHomePosition/include \
