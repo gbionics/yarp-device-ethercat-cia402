@@ -19,7 +19,7 @@ namespace CiA402
  * This utility connects to all EtherCAT slaves on the specified network interface using SDO
  * communication and reads back the current encoder positions (raw and adjusted) and resolutions
  * for both encoder channels. It then compares these live values against a reference TOML file
- * previously written by StoreHome37 immediately after calibration.
+ * previously written by @ref CiA402::StoreHome37 (store-home-position application) immediately after calibration.
  *
  * The result is a human-readable Markdown report containing one table per slave, showing:
  *  - The reference value from the TOML file.
