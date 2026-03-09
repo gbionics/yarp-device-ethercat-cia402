@@ -2,11 +2,9 @@
 // SPDX-License-Identifier: BSD-3-Clause
 
 #include <chrono>
-#include <cmath>
 #include <ctime>
 #include <fstream>
 #include <iomanip>
-#include <iostream>
 #include <sstream>
 #include <string>
 #include <vector>
