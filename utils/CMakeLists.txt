@@ -1,1 +1,2 @@
 add_subdirectory(StoreHomePosition)
+add_subdirectory(CheckEncoderCalibration)

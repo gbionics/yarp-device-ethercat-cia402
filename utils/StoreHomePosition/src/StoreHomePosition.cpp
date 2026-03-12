@@ -12,8 +12,10 @@
 
 #include <toml++/toml.h>
 
+#include <CiA402/EncoderSdoIndices.h>
 #include <CiA402/EthercatManager.h>
 #include <CiA402/LogComponent.h>
+#include <CiA402/TimeUtils.h>
 
 #include <StoreHomePosition/StoreHomePosition.h>
 #include <yarp/os/LogStream.h>
@@ -33,11 +35,7 @@ static constexpr uint16_t IDX_STORE_PARAMS = 0x1010; // uint32: :01 = 'evas'
 
 static constexpr uint16_t IDX_HOME_VENDOR = 0x2005; // Synapticon: :01 Home, :02 Restore-on-load
 
-// ---- Encoder SDO indices ----
-static constexpr uint16_t IDX_ENC1_CONFIG = 0x2110; // :03 = resolution (counts/rev)
-static constexpr uint16_t IDX_ENC1_DATA   = 0x2111; // :02 = position
-static constexpr uint16_t IDX_ENC2_CONFIG = 0x2112; // :03 = resolution (counts/rev)
-static constexpr uint16_t IDX_ENC2_DATA   = 0x2113; // :02 = position
+
 
 // ---- Statusword helpers ----
 static inline bool swHomingAttained(uint16_t sw)
@@ -370,8 +368,7 @@ bool StoreHome37::run(yarp::os::ResourceFinder& rf)
         // Generate default filename with current date and time
         const auto now = std::chrono::system_clock::now();
         const std::time_t t = std::chrono::system_clock::to_time_t(now);
-        std::tm tm{};
-        localtime_r(&t, &tm);
+        const std::tm tm = getLocalTime(t);
         std::ostringstream oss;
         oss << "joint_calibration_"
             << std::put_time(&tm, "%Y_%m_%d_%H_%M_%S")
