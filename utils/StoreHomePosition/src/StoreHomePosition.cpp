@@ -12,8 +12,10 @@
 
 #include <toml++/toml.h>
 
+#include <CiA402/EncoderSdoIndices.h>
 #include <CiA402/EthercatManager.h>
 #include <CiA402/LogComponent.h>
+#include <CiA402/TimeUtils.h>
 
 #include <StoreHomePosition/StoreHomePosition.h>
 #include <yarp/os/LogStream.h>
@@ -21,17 +23,6 @@
 
 using namespace CiA402;
 using namespace std::chrono_literals;
-
-static std::tm getLocalTime(const std::time_t& t)
-{
-    std::tm tm{};
-#ifdef _WIN32
-    localtime_s(&tm, &t);
-#else
-    localtime_r(&t, &tm);
-#endif
-    return tm;
-}
 
 // ---- CiA-402 / Synapticon indices ----
 static constexpr uint16_t IDX_CONTROLWORD = 0x6040; // uint16
@@ -44,11 +35,7 @@ static constexpr uint16_t IDX_STORE_PARAMS = 0x1010; // uint32: :01 = 'evas'
 
 static constexpr uint16_t IDX_HOME_VENDOR = 0x2005; // Synapticon: :01 Home, :02 Restore-on-load
 
-// ---- Encoder SDO indices ----
-static constexpr uint16_t IDX_ENC1_CONFIG = 0x2110; // :03 = resolution (counts/rev)
-static constexpr uint16_t IDX_ENC1_DATA   = 0x2111; // :02 = position
-static constexpr uint16_t IDX_ENC2_CONFIG = 0x2112; // :03 = resolution (counts/rev)
-static constexpr uint16_t IDX_ENC2_DATA   = 0x2113; // :02 = position
+
 
 // ---- Statusword helpers ----
 static inline bool swHomingAttained(uint16_t sw)
