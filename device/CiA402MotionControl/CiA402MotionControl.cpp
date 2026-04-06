@@ -1050,9 +1050,10 @@ struct CiA402MotionControl::Impl
                 return false;
             }
 
+            constexpr uint16_t maxTorqueAdmissibleValue = 32767; // per SDO definition (0x6072 is uint16_t)
             const double motorNm = jointNm / gearRatio[j];
             const double perThousand = (motorNm / ratedMotorTorqueNm[j]) * 1000.0;
-            const double clamped = std::clamp(perThousand, 0.0, 65535.0);
+            const double clamped = std::clamp(perThousand, 0.0, static_cast<double>(maxTorqueAdmissibleValue));
             const uint16_t maxPerm = static_cast<uint16_t>(std::llround(clamped));
             const int s = firstSlave + static_cast<int>(j);
 
