@@ -1030,7 +1030,7 @@ struct CiA402MotionControl::Impl
                 return false;
             }
 
-            if (!(gearRatio[j] > 0.0))
+            if (gearRatio[j] <= 0.0)
             {
                 yCError(CIA402,
                         "%s j=%zu invalid gear ratio %.6f",
@@ -1040,7 +1040,7 @@ struct CiA402MotionControl::Impl
                 return false;
             }
 
-            if (!(ratedMotorTorqueNm[j] > 0.0))
+            if (ratedMotorTorqueNm[j] <= 0.0)
             {
                 yCError(CIA402,
                         "%s j=%zu invalid rated motor torque %.6f Nm",
