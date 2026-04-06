@@ -52,6 +52,7 @@ Notes:
 | Velocity loop source (vendor) | 0x2011:05 | UINT8   | Read  | Which encoder feeds velocity loop   | 1=Enc1, 2=Enc2             |
 | Gear ratio numerator          | 0x6091:01 | UINT32  | Read  | Motor:Load gear ratio (numerator)   | Defaults to 1               |
 | Gear ratio denominator        | 0x6091:02 | UINT32  | Read  | Motor:Load gear ratio (denominator) | Defaults to 1               |
+| Max torque                    | 0x6072:00 | UINT16  | R/W   | Maximum permissible motor torque     | Per-thousand of `0x6076`     |
 | Profile velocity              | 0x6081:00 | INT32   | R/W   | PP profile parameter                | Units per drive             |
 | Profile acceleration          | 0x6083:00 | INT32   | R/W   | PP profile parameter                | Units per drive             |
 | Rated motor torque            | 0x6076:00 | INT16/* | Read  | Scale for 0x6071                    | Nm, vendor sizing may vary  |
@@ -70,6 +71,7 @@ Notes:
 | rpm → deg/s         | deg/s = rpm × 360 / 60                  |
 | joint ↔ motor shaft | apply gear ratio and mounting sign      |
 | Nm → 0x6071         | (motorNm / ratedNm) × 1000 (clamped)    |
+| joint Nm → 0x6072   | ((jointNm / gearRatio) / ratedNm) × 1000 |
 | Kp cfg → drive      | Kp[mNm/inc] = (Kp_cfg[Nm/deg] / gearRatio) × 1000 × counts_per_deg |
 | Kd cfg → drive      | Kd[mNm*s/inc] = (Kd_cfg[Nm*s/deg] / gearRatio) × 1000 × counts_per_deg |
 

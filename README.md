@@ -53,6 +53,40 @@ export YARP_DATA_DIRS=/path/to/install/share/yarp:$YARP_DATA_DIRS
 ### Configuration ⚙️
 The plugin requires a configuration file defining the EtherCAT network and device parameters. An example can be found at: [`config/robot/template_1_motor/config.xml`](config/robot/template_1_motor/config.xml)
 
+#### Device parameters
+
+The `CiA402MotionControl` device accepts the following parameters.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `ifname` | string | Yes | Network interface name used by SOEM (for example `eth0`). |
+| `num_axes` | int | Yes | Number of controlled axes. |
+| `period` | float | Yes | Driver periodic thread period in seconds. |
+| `enc1_mount` | list(string) | Yes | One item per axis. Allowed values: `motor`, `joint`. |
+| `enc2_mount` | list(string) | Yes | One item per axis. Allowed values: `motor`, `joint`, `none`. |
+| `position_feedback_joint` | list(string) | Yes | One item per axis. Allowed values: `6064`, `enc1`, `enc2`. |
+| `position_feedback_motor` | list(string) | Yes | One item per axis. Allowed values: `6064`, `enc1`, `enc2`. |
+| `velocity_feedback_joint` | list(string) | Yes | One item per axis. Allowed values: `606C`, `enc1`, `enc2`. |
+| `velocity_feedback_motor` | list(string) | Yes | One item per axis. Allowed values: `606C`, `enc1`, `enc2`. |
+| `inverted_motion_sense_direction` | list(bool) | Yes | One flag per axis. If `true`, command and feedback sign are inverted for that axis. |
+| `position_window_deg` | list(double) | Yes | One item per axis. Position reached window in joint degrees (written through `0x6067`). |
+| `timing_window_ms` | list(double) | Yes | One item per axis. Position reached timing window in milliseconds (`0x6068`). |
+| `pos_limit_min_deg` | list(double) | Yes | One item per axis. Joint-side minimum limit in degrees. |
+| `pos_limit_max_deg` | list(double) | Yes | One item per axis. Joint-side maximum limit in degrees. |
+| `use_position_limits_from_config` | list(bool) | Yes | One flag per axis. If `true`, write `0x607D` from config. If `false`, read `0x607D` from drive and use that. |
+| `axes_names` | list(string) | Yes | One name per axis, returned by axis info APIs. |
+| `first_slave` | int | No | First EtherCAT slave index. Default: `1`. |
+| `expected_slave_name` | string | No | Optional expected slave name for sanity checks. |
+| `pdo_timeout_us` | int | No | PDO receive timeout in microseconds. Default: EthercatManager internal default. |
+| `enable_dc` | bool | No | Enable distributed clocks (SYNC0). Default: `true`. |
+| `dc_shift_ns` | int | No | SYNC0 phase shift in nanoseconds. Default: `0`. |
+| `use_simple_pid_mode` | bool | No | If `true`, set `0x2002:00 = 1` (Simple PID). If `false`, set `0x2002:00 = 2` (Cascaded PID). Default: `false`. |
+| `simple_pid_kp_nm_per_deg` | list(double) | No (pair) | Joint-side Kp values in Nm/deg for simple PID mode. Must be provided together with `simple_pid_kd_nm_s_per_deg`. |
+| `simple_pid_kd_nm_s_per_deg` | list(double) | No (pair) | Joint-side Kd values in Nm*s/deg for simple PID mode. Must be provided together with `simple_pid_kp_nm_per_deg`. |
+| `max_torque_joint_nm` | list(double) | No | Optional joint-side maximum torque in Nm. If provided, each value is converted to motor side and written to `0x6072:00` (per-thousand of `0x6076`). If omitted, the value already stored in the drive is used. |
+
+All list parameters must contain exactly `num_axes` elements.
+
 To select the drive internal position controller structure, configure:
 
 - `use_simple_pid_mode` — boolean. When `true` the driver sets `0x2002:00 = 1` (Simple PID);
