@@ -1020,7 +1020,7 @@ struct CiA402MotionControl::Impl
         for (size_t j = 0; j < numAxes; ++j)
         {
             const double jointNm = maxJointTorqueNm[j];
-            if (!(jointNm > 0.0))
+            if (jointNm <= 0.0)
             {
                 yCError(CIA402,
                         "%s j=%zu invalid max joint torque %.6f Nm (must be > 0)",
