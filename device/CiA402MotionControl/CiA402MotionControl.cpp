@@ -111,6 +111,12 @@ struct CiA402MotionControl::Impl
     std::vector<double> degSToVel; // multiply deg/s to get device value
     std::vector<bool> invertedMotionSenseDirection; // if true the torque, current, velocity and
                                                     // position have inverted sign
+
+    // Encoder error monitoring (dual-encoder only)
+    std::vector<bool> encoderErrorMonitoringEnabled; // true if both encoders are available
+    std::vector<double> encoderErrorOffsetDeg; // calibrated baseline offset [joint deg]
+    std::vector<double> encoderErrorThresholdDeg; // max allowed drift from baseline [joint deg]
+
     struct Limits
     {
         std::vector<double> maxPositionLimitDeg; // [deg] from 0x607D:1
@@ -1630,6 +1636,53 @@ struct CiA402MotionControl::Impl
                 = tx.has(CiA402::TxField::TemperatureDrive)
                       ? double(tx.get<int32_t>(CiA402::TxField::TemperatureDrive, 0)) * 1e-3
                       : 0.0;
+
+            // =====================================================================
+            // ENCODER ERROR MONITORING (dual-encoder only)
+            // =====================================================================
+            // Compute the current offset between the motor encoder (projected to the
+            // joint side) and the joint encoder:
+            //   current_offset = motor_deg / gear_ratio - joint_deg
+            // Compare against the calibrated baseline offset.  If the drift exceeds
+            // the configured threshold, warn:
+            //   drift = |current_offset - calibrated_offset|
+            if (this->encoderErrorMonitoringEnabled[j])
+            {
+                const double motorOnJointSideDeg
+                    = this->variables.motorEncoders[j] * this->gearRatioInv[j];
+                const double currentOffsetDeg
+                    = motorOnJointSideDeg - this->variables.jointPositions[j];
+                const double driftDeg
+                    = std::abs(currentOffsetDeg - this->encoderErrorOffsetDeg[j]);
+                if (driftDeg > this->encoderErrorThresholdDeg[j])
+                {
+                    const char* axisLabel = nullptr;
+                    if (j < this->variables.jointNames.size()
+                        && !this->variables.jointNames[j].empty())
+                    {
+                        axisLabel = this->variables.jointNames[j].c_str();
+                    }
+                    constexpr double printingPeriodInSeconds = 5.0;
+                    yCWarningThrottle(CIA402,
+                                      printingPeriodInSeconds,
+                                      "[readFeedback] Encoder drift on joint %zu%s%s%s: "
+                                      "drift=%.6f deg (threshold=%.6f deg), "
+                                      "currentOffset=%.6f deg, calibratedOffset=%.6f deg, "
+                                      "jointPos=%.6f deg, motorPos=%.6f deg (motor on joint "
+                                      "side=%.6f deg)",
+                                      j,
+                                      axisLabel ? " (" : "",
+                                      axisLabel ? axisLabel : "",
+                                      axisLabel ? ")" : "",
+                                      driftDeg,
+                                      this->encoderErrorThresholdDeg[j],
+                                      currentOffsetDeg,
+                                      this->encoderErrorOffsetDeg[j],
+                                      this->variables.jointPositions[j],
+                                      this->variables.motorEncoders[j],
+                                      motorOnJointSideDeg);
+                }
+            }
         }
 
         return true;
@@ -2184,6 +2237,36 @@ bool CiA402MotionControl::open(yarp::os::Searchable& cfg)
     if (!extractListOfDoubleFromSearchable(cfg, "timing_window_ms", timingWindowMs))
         return false;
 
+    // Optional: encoder error monitoring (dual-encoder drift detection)
+    // Both keys must be provided together.
+    std::vector<double> encoderErrorOffsetDeg;
+    std::vector<double> encoderErrorThresholdDeg;
+    const bool hasEncoderErrorOffset = cfg.check("encoder_error_offset_deg");
+    const bool hasEncoderErrorThreshold = cfg.check("encoder_error_threshold_deg");
+    if (hasEncoderErrorOffset != hasEncoderErrorThreshold)
+    {
+        yCError(CIA402,
+                "%s configuration must provide both encoder_error_offset_deg and "
+                "encoder_error_threshold_deg",
+                logPrefix);
+        return false;
+    }
+    if (hasEncoderErrorOffset)
+    {
+        if (!extractListOfDoubleFromSearchable(cfg,
+                                               "encoder_error_offset_deg",
+                                               encoderErrorOffsetDeg))
+        {
+            return false;
+        }
+        if (!extractListOfDoubleFromSearchable(cfg,
+                                               "encoder_error_threshold_deg",
+                                               encoderErrorThresholdDeg))
+        {
+            return false;
+        }
+    }
+
     const bool hasMaxJointTorqueCfg = cfg.check("max_torque_joint_nm");
     if (hasMaxJointTorqueCfg
         && !extractListOfDoubleFromSearchable(cfg,
@@ -2705,6 +2788,37 @@ bool CiA402MotionControl::open(yarp::os::Searchable& cfg)
     m_impl->ppState.ppRefSpeedDegS.assign(m_impl->numAxes, 0.0);
     m_impl->ppState.ppRefAccelerationDegSS.assign(m_impl->numAxes, 0.0);
     m_impl->ppState.ppHaltRequested.assign(m_impl->numAxes, false);
+
+    // Encoder error monitoring: enabled only when both encoders are available
+    // and both encoder_error_offset_deg and encoder_error_threshold_deg are configured.
+    m_impl->encoderErrorMonitoringEnabled.assign(m_impl->numAxes, false);
+    m_impl->encoderErrorOffsetDeg.assign(m_impl->numAxes, 0.0);
+    m_impl->encoderErrorThresholdDeg.assign(m_impl->numAxes, 0.0);
+    for (size_t j = 0; j < m_impl->numAxes; ++j)
+    {
+        const bool dualEncoder = (m_impl->enc1Mount[j] != Impl::Mount::None
+                                  && m_impl->enc2Mount[j] != Impl::Mount::None);
+        if (dualEncoder && hasEncoderErrorOffset)
+        {
+            m_impl->encoderErrorMonitoringEnabled[j] = true;
+            m_impl->encoderErrorOffsetDeg[j] = encoderErrorOffsetDeg[j];
+            m_impl->encoderErrorThresholdDeg[j] = encoderErrorThresholdDeg[j];
+            yCInfo(CIA402,
+                   "%s j=%zu encoder error monitoring enabled "
+                   "(calibrated_offset=%.6f deg, threshold=%.6f deg)",
+                   logPrefix,
+                   j,
+                   encoderErrorOffsetDeg[j],
+                   encoderErrorThresholdDeg[j]);
+        } else if (dualEncoder && !hasEncoderErrorOffset)
+        {
+            yCInfo(CIA402,
+                   "%s j=%zu dual encoder available but encoder_error_offset_deg / "
+                   "encoder_error_threshold_deg not configured; encoder drift monitoring disabled",
+                   logPrefix,
+                   j);
+        }
+    }
 
     for (size_t j = 0; j < m_impl->numAxes; ++j)
     {

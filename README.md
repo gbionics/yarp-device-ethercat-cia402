@@ -84,6 +84,8 @@ The `CiA402MotionControl` device accepts the following parameters.
 | `simple_pid_kp_nm_per_deg` | list(double) | No (pair) | Joint-side Kp values in Nm/deg for simple PID mode. Must be provided together with `simple_pid_kd_nm_s_per_deg`. |
 | `simple_pid_kd_nm_s_per_deg` | list(double) | No (pair) | Joint-side Kd values in Nm*s/deg for simple PID mode. Must be provided together with `simple_pid_kp_nm_per_deg`. |
 | `max_torque_joint_nm` | list(double) | No | Optional joint-side maximum torque in Nm. If provided, each value is converted to motor side and written to `0x6072:00` (per-thousand of `0x6076`). If omitted, the value already stored in the drive is used. |
+| `encoder_error_offset_deg` | list(double) | No (pair) | Per-axis calibrated encoder offset in joint degrees, as computed by `store-home-position` (`encoder_offset_joint_deg` in the TOML). Must be provided together with `encoder_error_threshold_deg`. |
+| `encoder_error_threshold_deg` | list(double) | No (pair) | Per-axis maximum allowed encoder drift from the calibrated offset, in joint degrees. Must be provided together with `encoder_error_offset_deg`. See [`doc/dual_encoder_handling.md`](./doc/dual_encoder_handling.md) for the equation. |
 
 All list parameters must contain exactly `num_axes` elements.
 
@@ -132,6 +134,14 @@ For more details, see:
 - Protocol map — PDOs, SDOs, and conversion formulas: [doc/protocol_map.md](./doc/protocol_map.md)
 - Modes and setpoints — available control modes and targets: [doc/modes_and_setpoints.md](./doc/modes_and_setpoints.md)
 - Dual encoder handling — mounts, sources, and transformations: [doc/dual_encoder_handling.md](./doc/dual_encoder_handling.md)
+
+## Utilities 🧰
+
+The project includes two command-line utilities for encoder calibration management:
+
+- **Store Home Position** — Homes all CiA-402 drives and persists the calibration to non-volatile memory. After calibration, writes a TOML snapshot of encoder positions, resolutions, gear ratios, and the computed encoder offset on the joint side. See [utils/StoreHomePosition/README.md](./utils/StoreHomePosition/README.md) for usage details.
+
+- **Check Encoder Calibration** — Reads the current encoder state from the drives and compares it against a reference TOML file produced by the store-home-position utility. Generates a Markdown report with per-slave delta tables to detect calibration drift. See [utils/CheckEncoderCalibration/README.md](./utils/CheckEncoderCalibration/README.md) for usage details.
 
 
 ## License 📜

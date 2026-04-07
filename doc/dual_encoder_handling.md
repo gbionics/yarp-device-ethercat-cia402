@@ -106,8 +106,75 @@ Fallbacks:
 ## Edge cases & notes
 - gearRatio=0 → invalid; conversions return 0.
 - Sign conventions must be consistent externally if mounts imply inversion.
-- Backlash detection (motor vs joint encoder) is out of scope.
 - PDO rollover is handled; always check presence before reading optional entries.
+
+## Encoder drift monitoring (dual-encoder)
+
+When both encoders are available (i.e. `enc1_mount ≠ none` **and** `enc2_mount ≠ none`), the
+driver can monitor whether the relationship between the motor and joint encoder has drifted
+since calibration. This is useful for detecting mechanical issues such as belt slip, coupling
+loosening, or calibration degradation over time.
+
+### Enabling
+
+Add both `encoder_error_offset_deg` (the calibrated baseline) and `encoder_error_threshold_deg`
+(the maximum acceptable drift) to the device configuration. Both are lists with one value per
+axis, in **joint-side degrees**. They must be provided together.
+
+```xml
+<!-- Calibrated offset from store-home-position TOML (encoder_offset_joint_deg) -->
+<param name="encoder_error_offset_deg">  ( -89.370 ) </param>
+<!-- Maximum acceptable drift from the calibrated offset -->
+<param name="encoder_error_threshold_deg"> ( 2.0 ) </param>
+```
+
+If provided and both encoders are mounted, the driver enables drift monitoring for that axis.
+
+### Calibrated offset
+
+At calibration time, the `store-home-position` utility reads both encoder positions and the
+gear ratio (SDO `0x6091`) and writes the initial offset to the TOML snapshot as
+`encoder_offset_joint_deg`:
+
+$$
+\delta_0 = \frac{\theta_{\text{enc1,adj}}}{N} - \theta_{\text{enc2,adj}}
+$$
+
+where:
+- $\theta_{\text{enc1,adj}}$ is the encoder 1 adjusted position in degrees (typically motor-mounted),
+- $\theta_{\text{enc2,adj}}$ is the encoder 2 adjusted position in degrees (typically joint-mounted),
+- $N$ is the gear ratio (motor revolutions per joint revolution, from SDO `0x6091`).
+
+This value is **not zero** in general — the two encoders have arbitrary zero points. It
+represents the correct nominal relationship between them at calibration time.
+
+### Monitored equation
+
+Every control cycle the driver computes the current offset on the **joint side**:
+
+$$
+\delta_{\text{now}} = \frac{\theta_{\text{motor}}}{N} - \theta_{\text{joint}}
+$$
+
+where $\theta_{\text{motor}}$ and $\theta_{\text{joint}}$ are the live motor and joint encoder
+readings (as reported by `getMotorEncoders` and `getEncoders`).
+
+The **drift** from the calibrated state is:
+
+$$
+d = |\delta_{\text{now}} - \delta_0|
+$$
+
+If $d > \text{encoder\_error\_threshold\_deg}$, a throttled warning is printed (at most once
+every 5 seconds).
+
+### How to set the parameters
+
+1. Run `store-home-position` to calibrate the drives. The TOML file contains
+   `encoder_offset_joint_deg` for each slave.
+2. Copy that value into `encoder_error_offset_deg` in the device XML.
+3. Choose `encoder_error_threshold_deg` based on the maximum mechanical compliance
+   expected in normal operation (e.g. 1–5 degrees depending on the transmission).
 
 ## Troubleshooting
 - Error: invalid config (encX not mounted/mapped) → Fix XML mapping or mounts.
