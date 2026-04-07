@@ -135,6 +135,18 @@ private:
             const double enc1RawDeg = static_cast<double>(enc1RawPos) * enc1ResInv * 360.0;
             const double enc2RawDeg = static_cast<double>(enc2RawPos) * enc2ResInv * 360.0;
 
+            // Read gear ratio (0x6091:01 numerator, 0x6091:02 denominator)
+            uint32_t grNum = 1;
+            uint32_t grDen = 1;
+            (void)mgr.readSDO<uint32_t>(s, 0x6091, 0x01, grNum);
+            if (mgr.readSDO<uint32_t>(s, 0x6091, 0x02, grDen)
+                    != EthercatManager::Error::NoError
+                || grDen == 0)
+            {
+                grDen = 1;
+            }
+            const double gearRatio = static_cast<double>(grNum) / static_cast<double>(grDen);
+
             // Store encoder 1 data
             toml::table enc1Table;
             enc1Table.insert("raw_position", static_cast<int64_t>(enc1RawPos));
@@ -155,6 +167,23 @@ private:
             enc2Table.insert("raw_to_degrees_factor", enc2Res ? (360.0 / static_cast<double>(enc2Res)) : 0.0);
             slaveTable.insert("encoder2", enc2Table);
 
+            // Store gear ratio
+            toml::table grTable;
+            grTable.insert("numerator", static_cast<int64_t>(grNum));
+            grTable.insert("denominator", static_cast<int64_t>(grDen));
+            grTable.insert("ratio", gearRatio);
+            slaveTable.insert("gear_ratio", grTable);
+
+            // Compute encoder offset on the joint side:
+            //   offset = enc1_adj_deg / gear_ratio - enc2_adj_deg
+            // This assumes enc1 is motor-mounted and enc2 is joint-mounted (typical setup).
+            // When both encoders are available, this value represents the expected difference
+            // between the motor encoder (projected to joint side) and the joint encoder at
+            // calibration time.
+            const double encoderOffsetJointDeg
+                = (gearRatio != 0.0) ? (enc1AdjDeg / gearRatio - enc2AdjDeg) : 0.0;
+            slaveTable.insert("encoder_offset_joint_deg", encoderOffsetJointDeg);
+
             // Also store device name
             slaveTable.insert("name", mgr.getName(s));
 
@@ -162,7 +191,8 @@ private:
 
             yCInfo(CIA402,
                    "s%02d: enc1 raw=%u adj=%d adj_deg=%.6f (res=%u), "
-                   "enc2 raw=%u adj=%d adj_deg=%.6f (res=%u)",
+                   "enc2 raw=%u adj=%d adj_deg=%.6f (res=%u), "
+                   "gear_ratio=%u:%u (%.6f), encoder_offset_joint=%.6f deg",
                    s,
                    enc1RawPos,
                    enc1AdjPos,
@@ -171,7 +201,11 @@ private:
                    enc2RawPos,
                    enc2AdjPos,
                    enc2AdjDeg,
-                   enc2Res);
+                   enc2Res,
+                   grNum,
+                   grDen,
+                   gearRatio,
+                   encoderOffsetJointDeg);
         }
 
         // Write TOML to file
@@ -184,6 +218,36 @@ private:
         ofs << root;
         ofs.close();
         yCInfo(CIA402, "StoreHome37: encoder data written to %s", tomlPath.c_str());
+
+        // Build the encoder_error_offset_deg list (one value per slave, in bus order)
+        std::ostringstream offsetList;
+        std::ostringstream thresholdList;
+        offsetList << std::fixed << std::setprecision(6);
+        thresholdList << std::fixed << std::setprecision(1);
+        for (size_t i = 0; i < slaves.size(); ++i)
+        {
+            const std::string key = "slave_" + std::to_string(slaves[i]);
+            const double offset = root[key]["encoder_offset_joint_deg"].value_or(0.0);
+            offsetList << offset;
+            thresholdList << 5.0;
+            if (i + 1 < slaves.size())
+            {
+                offsetList << " ";
+                thresholdList << " ";
+            }
+        }
+
+        // Print the exact XML lines the user should place in the device configuration
+        yCInfo(CIA402, "\n"
+               "============================================================\n"
+               "  Suggested lines for CiA402MotionControl device config:\n"
+               "============================================================\n"
+               "    <param name=\"encoder_error_offset_deg\">    ( %s )</param>\n"
+               "    <param name=\"encoder_error_threshold_deg\"> ( %s )</param>\n"
+               "============================================================",
+               offsetList.str().c_str(),
+               thresholdList.str().c_str());
+
         return true;
     }
 

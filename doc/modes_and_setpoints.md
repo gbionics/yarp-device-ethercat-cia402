@@ -29,6 +29,9 @@ See protocol_map.md for exact object indices and data types.
   - setRefTorque() or setRefCurrent() writes the torque target each cycle.
   - Torque path: joint Nm → motor Nm → per‑thousand of rated motor torque.
   - Current path: A → motor Nm via torque constant → per‑thousand.
+  - Optional config key `max_torque_joint_nm` writes `0x6072:00` at startup.
+    Values are specified on the joint side and converted to motor side through
+    gear ratio before converting to per-thousand of `0x6076`.
   - On CST flavor or mode change, set‑points/latches are cleared to avoid stale outputs.
 
 - PP (profile position):

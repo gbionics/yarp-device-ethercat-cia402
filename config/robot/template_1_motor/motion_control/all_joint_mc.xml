@@ -21,9 +21,16 @@ BSD-3-Clause license. -->
     <!-- Example simple PID gains provided in joint Nm/deg and Nm*s/deg -->
     <param name="simple_pid_kp_nm_per_deg"> ( 0.6981 )</param>
     <param name="simple_pid_kd_nm_s_per_deg"> ( 0.01745 )</param>
+    <!-- Optional: joint-side max torque in Nm, converted and written to 0x6072 -->
+    <param name="max_torque_joint_nm"> ( 17.0 )</param>
     <param name="position_window_deg"> ( 0.1 )</param>
     <param name="timing_window_ms"> ( 100 )</param>
     <param name="pos_limit_min_deg">               (        -23.0       )</param>
     <param name="pos_limit_max_deg">               (         23.0       )</param>
     <param name="use_position_limits_from_config"> (         true      )</param>
+    <!-- Optional: encoder drift monitoring (dual-encoder only).
+         encoder_error_offset_deg: calibrated baseline from store-home-position TOML (encoder_offset_joint_deg).
+         encoder_error_threshold_deg: max acceptable drift from baseline in joint degrees. -->
+    <!-- <param name="encoder_error_offset_deg">    ( -89.370 )</param> -->
+    <!-- <param name="encoder_error_threshold_deg"> ( 2.0 )</param> -->
 </device>

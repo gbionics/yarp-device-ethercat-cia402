@@ -82,13 +82,25 @@ After all slaves are calibrated, the tool reads the following SDOs and writes `-
 | `0x2112`   | `:03`| UDINT | `counts_per_revolution`            | Encoder 2 resolution (counts/rev)                |
 | `0x2113`   | `:01`| UDINT | `raw_position` / `raw_position_degrees`      | Encoder 2 raw position (unprocessed)  |
 | `0x2113`   | `:02`| DINT  | `adjusted_position` / `adjusted_position_degrees` | Encoder 2 position after polarity/ST offset |
+| `0x6091`   | `:01/:02` | UDINT | `gear_ratio.numerator` / `gear_ratio.denominator` / `gear_ratio.ratio` | Gear ratio (motor revs : joint revs) |
 
 Each encoder table also contains `raw_to_degrees_factor = 360.0 / counts_per_revolution`.
+
+Additionally, a computed field `encoder_offset_joint_deg` is written per slave, representing
+the calibrated offset between the two encoders projected to the joint side:
+
+```
+encoder_offset_joint_deg = enc1_adjusted_position_degrees / gear_ratio - enc2_adjusted_position_degrees
+```
+
+This value should be placed in the YARP device configuration as `encoder_error_offset_deg`
+to enable encoder drift monitoring at runtime (see the device documentation for details).
 
 **Example output:**
 ```toml
 [slave_1]
 name = "SOMANET"
+encoder_offset_joint_deg = -89.370098
 
 [slave_1.encoder1]
 raw_position            = 2461952
@@ -105,6 +117,11 @@ adjusted_position       = 0
 adjusted_position_degrees = 0.0
 counts_per_revolution   = 2521124
 raw_to_degrees_factor   = 0.00014280147
+
+[slave_1.gear_ratio]
+numerator = 9
+denominator = 1
+ratio = 9.0
 ```
 
 > Note: `adjusted_position` is zero until the encoder index has been found (incremental encoders).

@@ -79,12 +79,40 @@ public:
      *
      * @param config The configuration parameters for the driver.
      * @note The configuration parameters should include:
-     * | Parameter Name         | Type     | Description                                   | Is Mandatory? |
-     * |:----------------------:|:--------:|-----------------------------------------------|:-------------:|
-     * | ifname                 | string   | Name of the network interface to use          | Yes           |
-     * | num_axes               | int      | Number of axes to control                     | Yes           |
-     * | first_slave            | int      | Index of the slave to start from (default: 1) | No            |
-     * | expected_slave_name    | string   | Expected name of the slave                    | No            |
+     *
+     * | Parameter Name                    | Type         | Required  | Description                                                                    |
+     * |:----------------------------------|:-------------|:----------|:-------------------------------------------------------------------------------|
+     * | ifname                            | string       | Yes       | Network interface name used by SOEM (e.g. "eth0").                             |
+     * | num_axes                          | int          | Yes       | Number of controlled axes.                                                     |
+     * | period                            | float        | Yes       | Driver periodic-thread period in seconds.                                      |
+     * | enc1_mount                        | list(string) | Yes       | Physical mount of encoder 1 per axis: "motor" or "joint".                      |
+     * | enc2_mount                        | list(string) | Yes       | Physical mount of encoder 2 per axis: "motor", "joint" or "none".              |
+     * | position_feedback_joint           | list(string) | Yes       | Joint position source per axis: "6064", "enc1" or "enc2".                      |
+     * | position_feedback_motor           | list(string) | Yes       | Motor position source per axis: "6064", "enc1" or "enc2".                      |
+     * | velocity_feedback_joint           | list(string) | Yes       | Joint velocity source per axis: "606C", "enc1" or "enc2".                      |
+     * | velocity_feedback_motor           | list(string) | Yes       | Motor velocity source per axis: "606C", "enc1" or "enc2".                      |
+     * | inverted_motion_sense_direction   | list(bool)   | Yes       | Per-axis flag; if true, command and feedback sign are inverted.                 |
+     * | position_window_deg               | list(double) | Yes       | Position-reached window in joint degrees (SDO 0x6067).                         |
+     * | timing_window_ms                  | list(double) | Yes       | Position-reached timing window in milliseconds (SDO 0x6068).                   |
+     * | pos_limit_min_deg                 | list(double) | Yes       | Joint-side minimum position limit in degrees.                                  |
+     * | pos_limit_max_deg                 | list(double) | Yes       | Joint-side maximum position limit in degrees.                                  |
+     * | use_position_limits_from_config   | list(bool)   | Yes       | If true, write 0x607D from config; if false, read 0x607D from drive.           |
+     * | axes_names                        | list(string) | Yes       | Human-readable name per axis (returned by IAxisInfo).                          |
+     * | first_slave                       | int          | No        | First EtherCAT slave index. Default: 1.                                        |
+     * | expected_slave_name               | string       | No        | Optional expected slave name for sanity checks.                                |
+     * | pdo_timeout_us                    | int          | No        | PDO receive timeout in microseconds.                                           |
+     * | enable_dc                         | bool         | No        | Enable distributed clocks (SYNC0). Default: true.                              |
+     * | dc_shift_ns                       | int          | No        | SYNC0 phase shift in nanoseconds. Default: 0.                                  |
+     * | use_simple_pid_mode               | bool         | No        | true => Simple PID (0x2002=1), false => Cascaded PID (0x2002=2). Default: false.|
+     * | simple_pid_kp_nm_per_deg          | list(double) | No (pair) | Joint-side Kp in Nm/deg. Requires simple_pid_kd_nm_s_per_deg.                  |
+     * | simple_pid_kd_nm_s_per_deg        | list(double) | No (pair) | Joint-side Kd in Nm*s/deg. Requires simple_pid_kp_nm_per_deg.                  |
+     * | max_torque_joint_nm               | list(double) | No        | Joint-side max torque in Nm; converted and written to 0x6072.                  |
+     * | encoder_error_offset_deg          | list(double) | No (pair) | Calibrated encoder offset in joint deg (from store-home-position TOML).        |
+     * | encoder_error_threshold_deg       | list(double) | No (pair) | Max allowed encoder drift from baseline in joint deg.                          |
+     *
+     * All list parameters must contain exactly @c num_axes elements.
+     * Parameters marked "(pair)" must be provided together; supplying only one is an error.
+     *
      * @return true if the driver was opened successfully, false otherwise.
      */
     bool open(yarp::os::Searchable& config) override;
