@@ -1003,6 +1003,84 @@ struct CiA402MotionControl::Impl
         return true;
     }
 
+    bool configureMaxTorqueFromJointNm(const std::vector<double>& maxJointTorqueNm)
+    {
+        constexpr auto logPrefix = "[configureMaxTorqueFromJointNm]";
+
+        if (maxJointTorqueNm.size() != numAxes)
+        {
+            yCError(CIA402,
+                    "%s invalid vector size (%zu), expected %zu",
+                    logPrefix,
+                    maxJointTorqueNm.size(),
+                    numAxes);
+            return false;
+        }
+
+        for (size_t j = 0; j < numAxes; ++j)
+        {
+            const double jointNm = maxJointTorqueNm[j];
+            if (jointNm <= 0.0)
+            {
+                yCError(CIA402,
+                        "%s j=%zu invalid max joint torque %.6f Nm (must be > 0)",
+                        logPrefix,
+                        j,
+                        jointNm);
+                return false;
+            }
+
+            if (gearRatio[j] <= 0.0)
+            {
+                yCError(CIA402,
+                        "%s j=%zu invalid gear ratio %.6f",
+                        logPrefix,
+                        j,
+                        gearRatio[j]);
+                return false;
+            }
+
+            if (ratedMotorTorqueNm[j] <= 0.0)
+            {
+                yCError(CIA402,
+                        "%s j=%zu invalid rated motor torque %.6f Nm",
+                        logPrefix,
+                        j,
+                        ratedMotorTorqueNm[j]);
+                return false;
+            }
+
+            constexpr uint16_t maxTorqueAdmissibleValue = 32767; // per SDO definition (0x6072 is uint16_t)
+            const double motorNm = jointNm / gearRatio[j];
+            const double perThousand = (motorNm / ratedMotorTorqueNm[j]) * 1000.0;
+            const double clamped = std::clamp(perThousand, 0.0, static_cast<double>(maxTorqueAdmissibleValue));
+            const uint16_t maxPerm = static_cast<uint16_t>(std::llround(clamped));
+            const int s = firstSlave + static_cast<int>(j);
+
+            const auto err = ethercatManager.writeSDO<uint16_t>(s, 0x6072, 0x00, maxPerm);
+            if (err != ::CiA402::EthercatManager::Error::NoError)
+            {
+                yCError(CIA402,
+                        "%s j=%zu failed to write 0x6072:00",
+                        logPrefix,
+                        j);
+                return false;
+            }
+
+            maxMotorTorqueNm[j] = (static_cast<double>(maxPerm) / 1000.0) * ratedMotorTorqueNm[j];
+
+            yCInfo(CIA402,
+                   "%s j=%zu configured 0x6072 to %u permille (joint=%.6f Nm, motor=%.6f Nm)",
+                   logPrefix,
+                   j,
+                   static_cast<unsigned>(maxPerm),
+                   jointNm,
+                   maxMotorTorqueNm[j]);
+        }
+
+        return true;
+    }
+
     void setSDORefSpeed(int j, double spDegS)
     {
         // ----  map JOINT deg/s -> LOOP SHAFT deg/s (based on pos loop source + mount) ----
@@ -2090,6 +2168,7 @@ bool CiA402MotionControl::open(yarp::os::Searchable& cfg)
 
     std::vector<double> positionWindowDeg; // position window for targetReached
     std::vector<double> timingWindowMs; // timing window for targetReached
+    std::vector<double> maxJointTorqueNmFromConfig; // optional max torque on joint side [Nm]
     std::vector<double> simplePidKpNmPerDeg; // optional simple PID gains
     std::vector<double> simplePidKdNmSecPerDeg;
 
@@ -2104,6 +2183,15 @@ bool CiA402MotionControl::open(yarp::os::Searchable& cfg)
         return false;
     if (!extractListOfDoubleFromSearchable(cfg, "timing_window_ms", timingWindowMs))
         return false;
+
+    const bool hasMaxJointTorqueCfg = cfg.check("max_torque_joint_nm");
+    if (hasMaxJointTorqueCfg
+        && !extractListOfDoubleFromSearchable(cfg,
+                                              "max_torque_joint_nm",
+                                              maxJointTorqueNmFromConfig))
+    {
+        return false;
+    }
 
     const bool hasSimplePidKpCfg = cfg.check("simple_pid_kp_nm_per_deg");
     const bool hasSimplePidKdCfg = cfg.check("simple_pid_kd_nm_s_per_deg");
@@ -2362,6 +2450,22 @@ bool CiA402MotionControl::open(yarp::os::Searchable& cfg)
     {
         yCError(CIA402, "%s failed to read torque values from SDO", logPrefix);
         return false;
+    }
+
+    if (hasMaxJointTorqueCfg)
+    {
+        if (!m_impl->configureMaxTorqueFromJointNm(maxJointTorqueNmFromConfig))
+        {
+            yCError(CIA402,
+                    "%s failed to configure max torque (0x6072) from max_torque_joint_nm",
+                    logPrefix);
+            return false;
+        }
+    } else
+    {
+        yCDebug(CIA402,
+                "%s max_torque_joint_nm not provided: using drive 0x6072 values",
+                logPrefix);
     }
 
     // get the current control strategy
