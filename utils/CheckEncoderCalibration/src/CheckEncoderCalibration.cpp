@@ -356,15 +356,15 @@ private:
 
         // ---- Summary table ----
         ofs << "## Summary\n\n";
-        ofs << "| Slave | Name | Enc1 Adj &Delta; (deg) | Enc2 Adj &Delta; (deg) |\n";
+        ofs << "| Slave | Name | Enc1 Raw &Delta; (deg) | Enc2 Raw &Delta; (deg) |\n";
         ofs << "|:-----:|:-----|----------------------:|-----------------------:|\n";
 
         for (const auto& rpt : reports)
         {
             const double d1
-                = rpt.liveEnc1.adjustedPositionDegrees - rpt.refEnc1.adjustedPositionDegrees;
+                = rpt.liveEnc1.rawPositionDegrees - rpt.refEnc1.rawPositionDegrees;
             const double d2
-                = rpt.liveEnc2.adjustedPositionDegrees - rpt.refEnc2.adjustedPositionDegrees;
+                = rpt.liveEnc2.rawPositionDegrees - rpt.refEnc2.rawPositionDegrees;
             ofs << "| " << rpt.slaveIndex << " | " << rpt.name << " | " << fmtDeltaDouble(d1)
                 << " | " << fmtDeltaDouble(d2) << " |\n";
         }
