@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
 
 #include <chrono>
+#include <cmath>
 #include <ctime>
 #include <fstream>
 #include <iomanip>
@@ -63,6 +64,17 @@ struct EncoderChannelData
     double rawToDegreesFactor = 0.0;
 };
 
+struct CommutationOffsetData
+{
+    int16_t currentOffset = 0;      // 0x2001:00 — current commutation angle offset [0-4095]
+    uint8_t polePairs = 1;           // 0x2003:01 — number of motor pole pairs
+    int16_t estimatedNewOffset = 0;  // estimated offset after encoder 1 drift
+    double estimatedNewOffsetDeg = 0.0; // estimated offset in electrical degrees
+    double currentOffsetDeg = 0.0;   // current offset in electrical degrees
+    double enc1DeltaDeg = 0.0;       // encoder 1 mechanical delta in degrees
+    double enc1DeltaElecDeg = 0.0;   // encoder 1 delta in electrical degrees
+};
+
 struct SlaveReport
 {
     int slaveIndex = 0;
@@ -72,6 +84,8 @@ struct SlaveReport
     EncoderChannelData refEnc2;
     EncoderChannelData liveEnc1;
     EncoderChannelData liveEnc2;
+
+    CommutationOffsetData commOffset;
 };
 
 // ---- Read one encoder channel from a TOML table ----
@@ -315,6 +329,62 @@ public:
             readEncoderFromSlave(mgr, s, IDX_ENC1_CONFIG, IDX_ENC1_DATA, rpt.liveEnc1);
             readEncoderFromSlave(mgr, s, IDX_ENC2_CONFIG, IDX_ENC2_DATA, rpt.liveEnc2);
 
+            // Read commutation offset (0x2001:00) and pole pairs (0x2003:01)
+            {
+                int16_t commOffset = 0;
+                uint8_t polePairs = 1;
+
+                if (mgr.readSDO<int16_t>(s, IDX_COMMUTATION_OFFSET, 0x00, commOffset)
+                    != EthercatManager::Error::NoError)
+                {
+                    yCWarning(CIA402,
+                              "s%02d: failed to read commutation offset (0x2001:00)",
+                              s);
+                }
+                if (mgr.readSDO<uint8_t>(s, IDX_MOTOR_SETTINGS, 0x01, polePairs)
+                    != EthercatManager::Error::NoError)
+                {
+                    yCWarning(CIA402,
+                              "s%02d: failed to read pole pairs (0x2003:01)",
+                              s);
+                }
+                if (polePairs == 0)
+                    polePairs = 1;
+
+                rpt.commOffset.currentOffset = commOffset;
+                rpt.commOffset.polePairs = polePairs;
+                rpt.commOffset.currentOffsetDeg
+                    = static_cast<double>(commOffset) * 360.0 / 4096.0;
+
+                // Estimate new commutation offset from encoder 1 drift
+                // 0x2001 range [0-4095] maps to [0-360] electrical degrees
+                const int64_t enc1Delta
+                    = rpt.liveEnc1.rawPosition - rpt.refEnc1.rawPosition;
+                const double enc1Res
+                    = static_cast<double>(rpt.liveEnc1.countsPerRevolution);
+
+                if (enc1Res > 0.0)
+                {
+                    const double deltaMechDeg
+                        = static_cast<double>(enc1Delta) * 360.0 / enc1Res;
+                    const double deltaElecDeg
+                        = deltaMechDeg * static_cast<double>(polePairs);
+                    const double deltaOffsetUnits = deltaElecDeg * 4096.0 / 360.0;
+
+                    // Wrap into [0, 4096) range
+                    int32_t newRaw
+                        = static_cast<int32_t>(commOffset)
+                          + static_cast<int32_t>(std::round(deltaOffsetUnits));
+                    newRaw = ((newRaw % 4096) + 4096) % 4096;
+
+                    rpt.commOffset.estimatedNewOffset = static_cast<int16_t>(newRaw);
+                    rpt.commOffset.estimatedNewOffsetDeg
+                        = static_cast<double>(newRaw) * 360.0 / 4096.0;
+                    rpt.commOffset.enc1DeltaDeg = deltaMechDeg;
+                    rpt.commOffset.enc1DeltaElecDeg = deltaElecDeg;
+                }
+            }
+
             reports.push_back(rpt);
         }
 
@@ -356,8 +426,8 @@ private:
 
         // ---- Summary table ----
         ofs << "## Summary\n\n";
-        ofs << "| Slave | Name | Enc1 Raw &Delta; (deg) | Enc2 Raw &Delta; (deg) |\n";
-        ofs << "|:-----:|:-----|----------------------:|-----------------------:|\n";
+        ofs << "| Slave | Name | Enc1 Raw &Delta; (deg) | Enc2 Raw &Delta; (deg) | Current Offset (0x2001) | Estimated New Offset |\n";
+        ofs << "|:-----:|:-----|----------------------:|-----------------------:|------------------------:|---------------------:|\n";
 
         for (const auto& rpt : reports)
         {
@@ -366,7 +436,9 @@ private:
             const double d2
                 = rpt.liveEnc2.rawPositionDegrees - rpt.refEnc2.rawPositionDegrees;
             ofs << "| " << rpt.slaveIndex << " | " << rpt.name << " | " << fmtDeltaDouble(d1)
-                << " | " << fmtDeltaDouble(d2) << " |\n";
+                << " | " << fmtDeltaDouble(d2)
+                << " | " << rpt.commOffset.currentOffset
+                << " | " << rpt.commOffset.estimatedNewOffset << " |\n";
         }
         ofs << "\n---\n\n";
 
@@ -377,6 +449,26 @@ private:
 
             writeEncoderTable(ofs, "Encoder 1 (0x2111)", rpt.refEnc1, rpt.liveEnc1);
             writeEncoderTable(ofs, "Encoder 2 (0x2113)", rpt.refEnc2, rpt.liveEnc2);
+
+            // Commutation offset estimation
+            ofs << "#### Commutation Offset Estimation (0x2001)\n\n";
+            ofs << "| Metric | Value |\n";
+            ofs << "|:-------|------:|\n";
+            ofs << "| Pole pairs (0x2003:01) | "
+                << static_cast<int>(rpt.commOffset.polePairs) << " |\n";
+            ofs << "| Current offset (0x2001) | "
+                << rpt.commOffset.currentOffset << " |\n";
+            ofs << "| Current offset (elec. deg) | "
+                << fmtDouble(rpt.commOffset.currentOffsetDeg) << " |\n";
+            ofs << "| Enc1 raw &Delta; (mech. deg) | "
+                << fmtDeltaDouble(rpt.commOffset.enc1DeltaDeg) << " |\n";
+            ofs << "| Enc1 raw &Delta; (elec. deg) | "
+                << fmtDeltaDouble(rpt.commOffset.enc1DeltaElecDeg) << " |\n";
+            ofs << "| **Estimated new offset** | **"
+                << rpt.commOffset.estimatedNewOffset << "** |\n";
+            ofs << "| **Estimated new offset (elec. deg)** | **"
+                << fmtDouble(rpt.commOffset.estimatedNewOffsetDeg) << "** |\n";
+            ofs << "\n";
 
             ofs << "---\n\n";
         }
