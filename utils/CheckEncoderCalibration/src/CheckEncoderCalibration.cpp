@@ -468,6 +468,15 @@ private:
                 << rpt.commOffset.estimatedNewOffset << "** |\n";
             ofs << "| **Estimated new offset (elec. deg)** | **"
                 << fmtDouble(rpt.commOffset.estimatedNewOffsetDeg) << "** |\n";
+
+            const int16_t offsetDelta
+                = rpt.commOffset.estimatedNewOffset - rpt.commOffset.currentOffset;
+            const double offsetDeltaDeg
+                = rpt.commOffset.estimatedNewOffsetDeg - rpt.commOffset.currentOffsetDeg;
+            ofs << "| **&Delta; (estimated &minus; current)** | **"
+                << fmtDeltaInt64(static_cast<int64_t>(offsetDelta)) << "** |\n";
+            ofs << "| **&Delta; (elec. deg)** | **"
+                << fmtDeltaDouble(offsetDeltaDeg) << "** |\n";
             ofs << "\n";
 
             ofs << "---\n\n";
