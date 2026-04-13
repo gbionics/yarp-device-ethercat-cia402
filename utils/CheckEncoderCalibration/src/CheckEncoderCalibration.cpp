@@ -426,8 +426,8 @@ private:
 
         // ---- Summary table ----
         ofs << "## Summary\n\n";
-        ofs << "| Slave | Name | Enc1 Raw &Delta; (deg) | Enc2 Raw &Delta; (deg) | Current Offset (0x2001) | Estimated New Offset |\n";
-        ofs << "|:-----:|:-----|----------------------:|-----------------------:|------------------------:|---------------------:|\n";
+        ofs << "| Slave | Name | Enc1 Raw &Delta; (deg) | Enc2 Raw &Delta; (deg) | Current Offset (0x2001) | Estimated New Offset | &Delta; (Estimated - Current) |\n";
+        ofs << "|:-----:|:-----|----------------------:|-----------------------:|------------------------:|---------------------:|-------------------------------:|\n";
 
         for (const auto& rpt : reports)
         {
@@ -435,10 +435,13 @@ private:
                 = rpt.liveEnc1.rawPositionDegrees - rpt.refEnc1.rawPositionDegrees;
             const double d2
                 = rpt.liveEnc2.rawPositionDegrees - rpt.refEnc2.rawPositionDegrees;
+            const int16_t offsetDelta
+                = rpt.commOffset.estimatedNewOffset - rpt.commOffset.currentOffset;
             ofs << "| " << rpt.slaveIndex << " | " << rpt.name << " | " << fmtDeltaDouble(d1)
                 << " | " << fmtDeltaDouble(d2)
                 << " | " << rpt.commOffset.currentOffset
-                << " | " << rpt.commOffset.estimatedNewOffset << " |\n";
+                << " | " << rpt.commOffset.estimatedNewOffset
+                << " | " << fmtDeltaInt64(static_cast<int64_t>(offsetDelta)) << " |\n";
         }
         ofs << "\n---\n\n";
 
