@@ -96,7 +96,8 @@ struct CiA402MotionControl::Impl
     //--------------------------------------------------------------------------
     std::vector<double> gearRatio; //  motor-revs : load-revs
     std::vector<double> gearRatioInv; // 1 / gearRatio
-    std::vector<double> torqueConstants; // [Nm/A] from 0x2003:01
+    std::vector<double> torqueConstants; // [Nm/A] from 0x2003:02 (Synapticon: µNm/A)
+    std::vector<double> phaseResistancesOhm; // [Ohm] from 0x2003:03 (Synapticon: µOhm)
     std::vector<double> maxCurrentsA; // [A] from 0x6075
     std::vector<double> ratedMotorTorqueNm; // [Nm] from 0x6076
     std::vector<double> maxMotorTorqueNm; // [Nm] from 0x6072
@@ -852,6 +853,7 @@ struct CiA402MotionControl::Impl
         constexpr auto logPrefix = "[readMotorConstants]";
 
         torqueConstants.resize(numAxes);
+        phaseResistancesOhm.resize(numAxes);
         maxCurrentsA.resize(numAxes);
 
         for (size_t j = 0; j < numAxes; ++j)
@@ -871,6 +873,23 @@ struct CiA402MotionControl::Impl
             {
                 // convert from µNm/A to Nm/A
                 torqueConstants[j] = double(tcMicroNmA) * 1e-6;
+            }
+
+            // Synapticon 0x2003:03 Phase resistance is DINT in µOhm.
+            int32_t phaseResistanceMicroOhm = 0;
+            if (ethercatManager.readSDO<int32_t>(s, 0x2003, 0x03, phaseResistanceMicroOhm)
+                    != ::CiA402::EthercatManager::Error::NoError
+                || phaseResistanceMicroOhm == 0)
+            {
+                yWarning("%s j=%zu cannot read phase resistance (0x2003:03) or zero, assuming "
+                         "1.0 Ohm",
+                         logPrefix,
+                         j);
+                phaseResistancesOhm[j] = 1.0;
+            } else
+            {
+                // convert from µOhm to Ohm
+                phaseResistancesOhm[j] = double(phaseResistanceMicroOhm) * 1e-6;
             }
 
             // first of all we need to read the motor rated current
@@ -904,12 +923,14 @@ struct CiA402MotionControl::Impl
             }
 
             yCDebug(CIA402,
-                    "%s j=%zu max_current=%u_permille (%.3fA), torque_constant=%.6f_Nm/A",
+                    "%s j=%zu max_current=%u_permille (%.3fA), torque_constant=%.6f_Nm/A, "
+                    "phase_resistance=%.6f_Ohm",
                     logPrefix,
                     j,
                     maxPermille,
                     (double(maxPermille) / 1000.0) * ratedCurrentA,
-                    this->torqueConstants[j]);
+                    this->torqueConstants[j],
+                    this->phaseResistancesOhm[j]);
 
             maxCurrentsA[j] = (double(maxPermille) / 1000.0) * ratedCurrentA;
         }
@@ -3034,10 +3055,10 @@ void CiA402MotionControl::run()
      * to load changes.  If 0x6074 is not mapped, readFeedback() falls back
      * to 0x6077 so the limiter still works.
      *
-     * LIMITATION: positive mechanical power (tau * omega) underestimates the
-     * electrical burden at low speed / stall where I²R losses dominate.  The
-     * code structure below (totalPosReqPower accumulator) is designed so a
-     * future per-axis term  += a_i * tau_i²  can be added trivially.
+    * Total requested power includes:
+    *  - positive mechanical power max(0, tau*omega)
+    *  - copper losses R_phase * i_des^2, where i_des is derived from torque
+    *    demand (0x6074, output of the position PID in CSP mode)
      */
     {
         // Compute effective MaxTorque for each axis and write to RxPDO.
@@ -3048,6 +3069,9 @@ void CiA402MotionControl::run()
         {
             constexpr double kDegToRad = M_PI / 180.0;
             double totalPosReqPower = 0.0;
+            double totalCopperPower = 0.0;
+            std::vector<double> iDesPerAxis(m_impl->numAxes);
+            std::vector<double> copperPerAxis(m_impl->numAxes);
 
             // Read from cached feedback (written by readFeedback() on the
             // previous cycle).  No mutex needed: run() is the only writer and
@@ -3064,11 +3088,50 @@ void CiA402MotionControl::run()
                 if (pMech > 0.0)
                     totalPosReqPower += pMech;
 
-                // ---- Future extension point ----
-                // To account for I²R losses at stall, add:
-                //   totalPosReqPower += ohmicCoeff[j] * tauJoint * tauJoint;
-                // where ohmicCoeff[j] = R_phase / (Kt² * gearRatio²)
+                // Convert joint-side desired torque to motor-side desired current:
+                // tau_motor_des = tau_joint_des / gearRatio
+                // i_des = tau_motor_des / Kt
+                const double tauMotorDes = tauJoint * m_impl->gearRatioInv[j];
+                const double iDesA
+                    = (m_impl->torqueConstants[j] != 0.0) ? (tauMotorDes / m_impl->torqueConstants[j])
+                                                          : 0.0;
+                const double pCopper = m_impl->phaseResistancesOhm[j] * iDesA * iDesA; // [W]
+                iDesPerAxis[j] = std::abs(iDesA);
+                copperPerAxis[j] = pCopper;
+                totalCopperPower += pCopper;
             }
+            totalCopperPower *= 11;
+
+            // Build per-axis debug strings for i_des and copper power
+            std::string iDesStr, copperStr;
+            for (size_t j = 0; j < m_impl->numAxes; ++j)
+            {
+                char buf[64];
+                std::snprintf(buf, sizeof(buf), "%.3f", iDesPerAxis[j]);
+                iDesStr += buf;
+                std::snprintf(buf, sizeof(buf), "%.3f", copperPerAxis[j]);
+                copperStr += buf;
+                if (j + 1 < m_impl->numAxes)
+                {
+                    iDesStr += ' ';
+                    copperStr += ' ';
+                }
+            }
+            double totalIDes = 0.0;
+            for (size_t j = 0; j < m_impl->numAxes; ++j)
+                totalIDes += iDesPerAxis[j];
+            // yCDebugThrottle(CIA402,
+            //                 1.0,
+            //                 "%s i_des [A]: [%s], total_i_des=%.3f A",
+            //                 logPrefix,
+            //                 iDesStr.c_str(),
+            //                 totalIDes);
+            yCDebugThrottle(CIA402,
+                            1.0,
+                            "%s copper_per_axis [W]: [%s], total_copper=%.3f W",
+                            logPrefix,
+                            copperStr.c_str(),
+                            totalCopperPower);
 
             const double alphaRaw
                 = std::min(1.0,
@@ -3094,12 +3157,13 @@ void CiA402MotionControl::run()
             yCDebugThrottle(CIA402,
                             1.0,
                             "%s power limiter: P_req=%.1f W, alpha_raw=%.3f, "
-                            "alpha_filt=%.3f, budget=%.1f W",
+                            "alpha_filt=%.3f, budget=%.1f W, copper=%.1f W",
                             logPrefix,
                             totalPosReqPower,
                             alphaRaw,
                             alpha,
-                            m_impl->sharedPowerLimiter.budgetW);
+                            m_impl->sharedPowerLimiter.budgetW,
+                            totalCopperPower);
         }
 
         // Write MaxTorque to every axis's RxPDO.  When the limiter is disabled
