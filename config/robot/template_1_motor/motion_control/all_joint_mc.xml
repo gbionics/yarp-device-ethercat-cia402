@@ -28,4 +28,13 @@ BSD-3-Clause license. -->
     <param name="pos_limit_min_deg">               (        -23.0       )</param>
     <param name="pos_limit_max_deg">               (         23.0       )</param>
     <param name="use_position_limits_from_config"> (         true      )</param>
+    <!-- Shared power limiter: master-side power-supply-like saturation.
+         When enabled, total positive mechanical power across all axes is
+         monitored and a single alpha ∈ [0,1] is applied to every axis's
+         0x6072 Max Torque uniformly.  Disabled by default. -->
+    <!-- <param name="enable_shared_power_limiter">false</param> -->
+    <!-- <param name="shared_power_budget_w">500.0</param> -->
+    <!-- <param name="limiter_tighten_rate">10.0</param> -->
+    <!-- <param name="limiter_release_rate">2.0</param> -->
+    <!-- <param name="limiter_eps">1.0</param> -->
 </device>

@@ -95,6 +95,7 @@ EthercatManager::Error EthercatManager::configurePDOMapping(int s)
     wr32(0x1600, ++rx_n, mapEntry(0x6071, 0x00, 16)); // Target torque (16 bits)
     wr32(0x1600, ++rx_n, mapEntry(0x607A, 0x00, 32)); // Target position (32 bits)
     wr32(0x1600, ++rx_n, mapEntry(0x60FF, 0x00, 32)); // Target velocity (32 bits)
+    wr32(0x1600, ++rx_n, mapEntry(0x6072, 0x00, 16)); // Max torque (16 bits)
 
     // Write the total number of entries to finalize the RxPDO mapping
     wr8(0x1600, 0x00, rx_n);
@@ -180,6 +181,7 @@ EthercatManager::Error EthercatManager::configurePDOMapping(int s)
     tryMap(TxField::Position6064, 0x6064, 0x00, 32); // Actual position
     tryMap(TxField::Velocity606C, 0x606C, 0x00, 32); // Actual velocity
     tryMap(TxField::Torque6077, 0x6077, 0x00, 16); // Actual torque
+    tryMap(TxField::TorqueDemand6074, 0x6074, 0x00, 16); // Torque demand (diagnostic)
     tryMap(TxField::PositionError6065, 0x6065, 0x00, 32); // Position error
 
     // --------- Map optional/vendor-specific fields ----------

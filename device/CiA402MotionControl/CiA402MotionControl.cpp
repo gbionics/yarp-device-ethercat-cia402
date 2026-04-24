@@ -298,6 +298,33 @@ struct CiA402MotionControl::Impl
     yarp::dev::InteractionModeEnum dummyInteractionMode{
         yarp::dev::InteractionModeEnum::VOCAB_IM_STIFF};
 
+    //--------------------------------------------------------------------------
+    //  Shared Power Limiter
+    //--------------------------------------------------------------------------
+    // Master-side shared power-supply-like limiter.  Monitors the total positive
+    // mechanical power produced by all motors and reduces the 0x6072 Max-torque
+    // of every axis by a single common scale factor (alpha) when the budget is
+    // exceeded.  This behaves like a real power supply that saturates and scales
+    // all drives together, rather than clipping individual joints greedily.
+    //
+    // Limitation (documented by design): the metric is positive mechanical power
+    // P = sum_i max(0, tau_i * omega_i).  At low speed or stall, the real
+    // electrical dissipation I^2*R is NOT captured.  A future extension can add
+    // an ohmic-loss term  a_i * tau_i^2  without changing the interface.
+    struct SharedPowerLimiter
+    {
+        bool enabled{false}; ///< Feature gate (preserves legacy behaviour when false)
+        double budgetW{500.0}; ///< Watts – total positive mechanical power budget
+        double tightenRate{10.0}; ///< alpha/s – how fast alpha can decrease
+        double releaseRate{2.0}; ///< alpha/s – how fast alpha can increase
+        double eps{1.0}; ///< Watts – prevents division by zero
+        double alphaFiltered{1.0}; ///< Current filtered scale factor [0,1]
+    } sharedPowerLimiter;
+
+    // Per-axis base Max Torque (permille of rated) configured at startup.
+    // Written to the RxPDO every cycle; the limiter modulates this value.
+    std::vector<uint16_t> baseMaxTorquePermille;
+
     Impl() = default;
     ~Impl() = default;
 
@@ -967,6 +994,7 @@ struct CiA402MotionControl::Impl
 
         ratedMotorTorqueNm.resize(numAxes);
         maxMotorTorqueNm.resize(numAxes);
+        baseMaxTorquePermille.resize(numAxes, 0);
 
         for (size_t j = 0; j < numAxes; ++j)
         {
@@ -991,6 +1019,7 @@ struct CiA402MotionControl::Impl
                 return false;
             }
             maxMotorTorqueNm[j] = (double(maxPerm) / 1000.0) * ratedMotorTorqueNm[j];
+            baseMaxTorquePermille[j] = maxPerm;
             yCDebug(CIA402,
                     "%s j=%zu motor_rated_torque=%.3fNm max_torque=%.3fNm",
                     logPrefix,
@@ -1068,6 +1097,7 @@ struct CiA402MotionControl::Impl
             }
 
             maxMotorTorqueNm[j] = (static_cast<double>(maxPerm) / 1000.0) * ratedMotorTorqueNm[j];
+            baseMaxTorquePermille[j] = maxPerm;
 
             yCInfo(CIA402,
                    "%s j=%zu configured 0x6072 to %u permille (joint=%.6f Nm, motor=%.6f Nm)",
@@ -2214,6 +2244,46 @@ bool CiA402MotionControl::open(yarp::os::Searchable& cfg)
             return false;
     }
 
+    // =========================================================================
+    // SHARED POWER LIMITER CONFIGURATION
+    // =========================================================================
+    m_impl->sharedPowerLimiter.enabled
+        = cfg.check("enable_shared_power_limiter")
+              ? cfg.find("enable_shared_power_limiter").asBool()
+              : false;
+    m_impl->sharedPowerLimiter.budgetW
+        = cfg.check("shared_power_budget_w")
+              ? cfg.find("shared_power_budget_w").asFloat64()
+              : 500.0;
+    m_impl->sharedPowerLimiter.tightenRate
+        = cfg.check("limiter_tighten_rate")
+              ? cfg.find("limiter_tighten_rate").asFloat64()
+              : 10.0;
+    m_impl->sharedPowerLimiter.releaseRate
+        = cfg.check("limiter_release_rate")
+              ? cfg.find("limiter_release_rate").asFloat64()
+              : 2.0;
+    m_impl->sharedPowerLimiter.eps
+        = cfg.check("limiter_eps")
+              ? cfg.find("limiter_eps").asFloat64()
+              : 1.0;
+    m_impl->sharedPowerLimiter.alphaFiltered = 1.0;
+
+    if (m_impl->sharedPowerLimiter.enabled)
+    {
+        yCInfo(CIA402,
+               "%s shared power limiter ENABLED: budget=%.1f W, tighten=%.1f/s, "
+               "release=%.1f/s, eps=%.1f W",
+               logPrefix,
+               m_impl->sharedPowerLimiter.budgetW,
+               m_impl->sharedPowerLimiter.tightenRate,
+               m_impl->sharedPowerLimiter.releaseRate,
+               m_impl->sharedPowerLimiter.eps);
+    } else
+    {
+        yCInfo(CIA402, "%s shared power limiter disabled", logPrefix);
+    }
+
     for (size_t j = 0; j < m_impl->numAxes; ++j)
     {
         m_impl->enc1Mount.push_back(parseMount(enc1MStr[j]));
@@ -2665,6 +2735,9 @@ bool CiA402MotionControl::open(yarp::os::Searchable& cfg)
         }
         rx->Controlword = 0x0000;
         rx->OpMode = 0;
+        // Initialize the MaxTorque RxPDO field with the configured base value so
+        // that the very first frames in SAFE-OP / OP carry a valid limit.
+        rx->MaxTorque = m_impl->baseMaxTorquePermille[j];
     }
 
     // Send one frame so the outputs take effect
@@ -2942,6 +3015,99 @@ void CiA402MotionControl::run()
             }
         }
     } /* mutex unlocked – PDOs are now ready to send */
+
+    /* ------------------------------------------------------------------
+     * 1b. SHARED POWER LIMITER  (modulates 0x6072 Max Torque for all axes)
+     * ------------------------------------------------------------------
+     * Reads actual torque (0x6077) and velocity (0x606C) from the feedback
+     * snapshot of the *previous* cycle, computes the total positive mechanical
+     * power, and derives a single scale factor alpha ∈ [0,1] applied uniformly
+     * to every axis's base Max Torque.  An asymmetric rate limiter makes
+     * tightening faster than release to avoid transient power spikes.
+     *
+     * NOTE: the monitoring signal is 0x6077 (Torque actual value), NOT 0x60FA
+     * (Control effort).  In CSP + simple PID, 0x60FA is defined as "the output
+     * of the velocity control loop", which does not exist in simple PID mode.
+     * Using the actual measured torque is both robust and always available.
+     *
+     * LIMITATION: positive mechanical power (tau * omega) underestimates the
+     * electrical burden at low speed / stall where I²R losses dominate.  The
+     * code structure below (totalPosReqPower accumulator) is designed so a
+     * future per-axis term  += a_i * tau_i²  can be added trivially.
+     */
+    {
+        // Compute effective MaxTorque for each axis and write to RxPDO.
+        // When the limiter is disabled alpha stays at 1.0 → no change.
+        double alpha = 1.0;
+
+        if (m_impl->sharedPowerLimiter.enabled)
+        {
+            constexpr double kDegToRad = M_PI / 180.0;
+            double totalPosReqPower = 0.0;
+
+            // Read from cached feedback (written by readFeedback() on the
+            // previous cycle).  No mutex needed: run() is the only writer and
+            // we are still inside the run-guard mutex.
+            for (size_t j = 0; j < m_impl->numAxes; ++j)
+            {
+                const double tauJoint = m_impl->variables.jointTorques[j]; // [Nm]
+                const double omegaJoint
+                    = m_impl->variables.jointVelocities[j] * kDegToRad; // [rad/s]
+                const double pMech = tauJoint * omegaJoint; // [W]
+
+                // Only positive (motoring) power counts toward the budget.
+                if (pMech > 0.0)
+                    totalPosReqPower += pMech;
+
+                // ---- Future extension point ----
+                // To account for I²R losses at stall, add:
+                //   totalPosReqPower += ohmicCoeff[j] * tauJoint * tauJoint;
+                // where ohmicCoeff[j] = R_phase / (Kt² * gearRatio²)
+            }
+
+            const double alphaRaw
+                = std::min(1.0,
+                           m_impl->sharedPowerLimiter.budgetW
+                               / std::max(totalPosReqPower, m_impl->sharedPowerLimiter.eps));
+
+            // Asymmetric rate limiter: tighten fast, release slow.
+            const double dt = this->getPeriod(); // [s]
+            double& alphaFilt = m_impl->sharedPowerLimiter.alphaFiltered;
+            const double delta = alphaRaw - alphaFilt;
+            if (delta < 0.0)
+            {
+                // Tightening (alpha decreasing → more restrictive)
+                alphaFilt += std::max(delta, -m_impl->sharedPowerLimiter.tightenRate * dt);
+            } else
+            {
+                // Releasing (alpha increasing → less restrictive)
+                alphaFilt += std::min(delta, m_impl->sharedPowerLimiter.releaseRate * dt);
+            }
+            alphaFilt = std::clamp(alphaFilt, 0.0, 1.0);
+            alpha = alphaFilt;
+
+            yCDebugThrottle(CIA402,
+                            1.0,
+                            "%s power limiter: P_req=%.1f W, alpha_raw=%.3f, "
+                            "alpha_filt=%.3f, budget=%.1f W",
+                            logPrefix,
+                            totalPosReqPower,
+                            alphaRaw,
+                            alpha,
+                            m_impl->sharedPowerLimiter.budgetW);
+        }
+
+        // Write MaxTorque to every axis's RxPDO.  When the limiter is disabled
+        // (alpha == 1.0) this simply keeps the configured base value, which is
+        // required because 0x6072 is now part of the cyclic mapping.
+        for (size_t j = 0; j < m_impl->numAxes; ++j)
+        {
+            const int slaveIdx = m_impl->firstSlave + static_cast<int>(j);
+            auto* rx = m_impl->ethercatManager.getRxPDO(slaveIdx);
+            rx->MaxTorque = static_cast<uint16_t>(std::llround(
+                alpha * static_cast<double>(m_impl->baseMaxTorquePermille[j])));
+        }
+    }
 
     /* ------------------------------------------------------------------
      * 2.  SET USER-REQUESTED SETPOINTS (torque, position, velocity)

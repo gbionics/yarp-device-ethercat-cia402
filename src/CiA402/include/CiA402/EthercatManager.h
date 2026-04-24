@@ -41,6 +41,7 @@ struct RxPDO // (= master → slave, also called *Rx*PDO)
     int16_t TargetTorque; ///< 0x6071: Target torque
     int32_t TargetPosition; ///< 0x607A: Target position
     int32_t TargetVelocity; ///< 0x60FF: Target velocity
+    uint16_t MaxTorque; ///< 0x6072: Max torque (per-thousand of rated torque)
 };
 #pragma pack(pop)
 
@@ -65,7 +66,8 @@ enum class TxField : uint8_t
     Enc1Vel2111_03, ///< 0x2111:03 Vendor enc1 velocity
     Enc2Pos2113_02, ///< 0x2113:02 Vendor enc2 position
     Enc2Vel2113_03, ///< 0x2113:03 Vendor enc2 velocity
-    TemperatureDrive ///< 0x2031:01 Temperature (if supported)
+    TemperatureDrive, ///< 0x2031:01 Temperature (if supported)
+    TorqueDemand6074 ///< 0x6074: Torque demand value (post-limit, diagnostic)
 };
 
 /**
