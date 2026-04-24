@@ -130,6 +130,7 @@ struct CiA402MotionControl::Impl
         std::vector<double> jointVelocities; // for getJointVelocities()
         std::vector<double> jointAccelerations; // for getJointAccelerations()
         std::vector<double> jointTorques; // for getJointTorques()
+        std::vector<double> jointTorqueDemands; // 0x6074 torque demand (PID output) [Nm] joint-side
         std::vector<double> motorCurrents; // for getCurrents()
         std::vector<double> feedbackTime; // feedback time in seconds. Computed from
                                           // drive’s own internal timestep that starts when the
@@ -151,6 +152,7 @@ struct CiA402MotionControl::Impl
             this->jointAccelerations.resize(numAxes);
             this->jointNames.resize(numAxes);
             this->jointTorques.resize(numAxes);
+            this->jointTorqueDemands.resize(numAxes);
             this->motorCurrents.resize(numAxes);
             this->STO.resize(numAxes);
             this->SBC.resize(numAxes);
@@ -594,12 +596,12 @@ struct CiA402MotionControl::Impl
         // Convert to JOINT side depending on mount
 
         yCDebug(CIA402,
-            "loopCountsToJointDeg j=%zu counts=%.3f res=%u mount=%d -> shaftDeg=%.9f",
-            j,
-            counts,
-            res,
-            static_cast<int>(mount),
-            shaftDeg);
+                "loopCountsToJointDeg j=%zu counts=%.3f res=%u mount=%d -> shaftDeg=%.9f",
+                j,
+                counts,
+                res,
+                static_cast<int>(mount),
+                shaftDeg);
 
         if (mount == Mount::Motor)
             return shaftDeg * gearRatioInv[j]; // motor → joint
@@ -656,13 +658,10 @@ struct CiA402MotionControl::Impl
 
         // Read from first axis only (all should be the same)
         const int slaveIdx = firstSlave;
-        const auto err
-            = ethercatManager.readSDO<uint16_t>(slaveIdx, 0x2002, 0x00, strategyValue);
+        const auto err = ethercatManager.readSDO<uint16_t>(slaveIdx, 0x2002, 0x00, strategyValue);
         if (err != ::CiA402::EthercatManager::Error::NoError)
         {
-            yCError(CIA402,
-                    "%s failed to read 0x2002:00",
-                    logPrefix);
+            yCError(CIA402, "%s failed to read 0x2002:00", logPrefix);
             return false;
         }
 
@@ -701,9 +700,7 @@ struct CiA402MotionControl::Impl
         return true;
     }
 
-
-    bool readSimplePidGains(std::vector<double>& kpNmPerDeg,
-                            std::vector<double>& kdNmSecPerDeg)
+    bool readSimplePidGains(std::vector<double>& kpNmPerDeg, std::vector<double>& kdNmSecPerDeg)
     {
         constexpr auto logPrefix = "[readSimplePidGains]";
 
@@ -798,11 +795,11 @@ struct CiA402MotionControl::Impl
             const float32 kdValue = static_cast<float32>(kdDevice);
             constexpr float32 kiValue = 0.0f;
 
-
-                yCDebug(CIA402,
+            yCDebug(CIA402,
                     "%s j=%zu computing gains: kp_joint=%.6f[Nm/deg], kd_joint=%.6f[Nm*s/deg], "
                     "gearRatio=%.6f, degPerCount=%.9f => kp_motor=%.6f[mNm/deg], "
-                    "kd_motor=%.6f[mNm*s/deg] => kp_device=%.3f[mNm/inc], kd_device=%.3f[mNm*s/inc]",
+                    "kd_motor=%.6f[mNm*s/deg] => kp_device=%.3f[mNm/inc], "
+                    "kd_device=%.3f[mNm*s/inc]",
                     logPrefix,
                     j,
                     kpNmPerDeg[j],
@@ -1061,11 +1058,7 @@ struct CiA402MotionControl::Impl
 
             if (gearRatio[j] <= 0.0)
             {
-                yCError(CIA402,
-                        "%s j=%zu invalid gear ratio %.6f",
-                        logPrefix,
-                        j,
-                        gearRatio[j]);
+                yCError(CIA402, "%s j=%zu invalid gear ratio %.6f", logPrefix, j, gearRatio[j]);
                 return false;
             }
 
@@ -1079,20 +1072,19 @@ struct CiA402MotionControl::Impl
                 return false;
             }
 
-            constexpr uint16_t maxTorqueAdmissibleValue = 32767; // per SDO definition (0x6072 is uint16_t)
+            constexpr uint16_t maxTorqueAdmissibleValue = 32767; // per SDO definition (0x6072 is
+                                                                 // uint16_t)
             const double motorNm = jointNm / gearRatio[j];
             const double perThousand = (motorNm / ratedMotorTorqueNm[j]) * 1000.0;
-            const double clamped = std::clamp(perThousand, 0.0, static_cast<double>(maxTorqueAdmissibleValue));
+            const double clamped
+                = std::clamp(perThousand, 0.0, static_cast<double>(maxTorqueAdmissibleValue));
             const uint16_t maxPerm = static_cast<uint16_t>(std::llround(clamped));
             const int s = firstSlave + static_cast<int>(j);
 
             const auto err = ethercatManager.writeSDO<uint16_t>(s, 0x6072, 0x00, maxPerm);
             if (err != ::CiA402::EthercatManager::Error::NoError)
             {
-                yCError(CIA402,
-                        "%s j=%zu failed to write 0x6072:00",
-                        logPrefix,
-                        j);
+                yCError(CIA402, "%s j=%zu failed to write 0x6072:00", logPrefix, j);
                 return false;
             }
 
@@ -1617,6 +1609,24 @@ struct CiA402MotionControl::Impl
             const double signedMotorNm = this->invertedMotionSenseDirection[j] ? -motorNm : motorNm;
             this->variables.jointTorques[j] = signedMotorNm * this->gearRatio[j];
             this->variables.motorCurrents[j] = signedMotorNm / this->torqueConstants[j];
+
+            // --------- Torque demand (0x6074, PID controller output) ----------
+            // In CSP mode the position PID (or cascaded PID) computes t_ref which
+            // the drive exposes as 0x6074.  Same encoding as 0x6077: per-thousand
+            // of rated torque, motor-side.
+            if (tx.has(CiA402::TxField::TorqueDemand6074))
+            {
+                const double td_per_thousand
+                    = double(tx.get<int16_t>(CiA402::TxField::TorqueDemand6074, 0)) / 1000.0;
+                const double tdMotorNm = td_per_thousand * this->ratedMotorTorqueNm[j];
+                const double signedTdMotorNm = this->invertedMotionSenseDirection[j] ? -tdMotorNm
+                                                                                     : tdMotorNm;
+                this->variables.jointTorqueDemands[j] = signedTdMotorNm * this->gearRatio[j];
+            } else
+            {
+                // Fallback: if 0x6074 is not mapped, use the measured torque.
+                this->variables.jointTorqueDemands[j] = this->variables.jointTorques[j];
+            }
 
             // --------- Safety signals (if mapped into PDOs) ----------
             // These provide real-time status of safety functions
@@ -2206,8 +2216,8 @@ bool CiA402MotionControl::open(yarp::os::Searchable& cfg)
     constexpr uint16_t kPositionStrategyCascadedPid = 2u;
     const bool useSimplePidMode
         = cfg.check("use_simple_pid_mode") ? cfg.find("use_simple_pid_mode").asBool() : false;
-    const uint16_t desiredPositionStrategy
-        = useSimplePidMode ? kPositionStrategySimplePid : kPositionStrategyCascadedPid;
+    const uint16_t desiredPositionStrategy = useSimplePidMode ? kPositionStrategySimplePid
+                                                              : kPositionStrategyCascadedPid;
 
     if (!extractListOfDoubleFromSearchable(cfg, "position_window_deg", positionWindowDeg))
         return false;
@@ -2247,26 +2257,18 @@ bool CiA402MotionControl::open(yarp::os::Searchable& cfg)
     // =========================================================================
     // SHARED POWER LIMITER CONFIGURATION
     // =========================================================================
-    m_impl->sharedPowerLimiter.enabled
-        = cfg.check("enable_shared_power_limiter")
-              ? cfg.find("enable_shared_power_limiter").asBool()
-              : false;
-    m_impl->sharedPowerLimiter.budgetW
-        = cfg.check("shared_power_budget_w")
-              ? cfg.find("shared_power_budget_w").asFloat64()
-              : 500.0;
+    m_impl->sharedPowerLimiter.enabled = cfg.check("enable_shared_power_limiter")
+                                             ? cfg.find("enable_shared_power_limiter").asBool()
+                                             : false;
+    m_impl->sharedPowerLimiter.budgetW = cfg.check("shared_power_budget_w")
+                                             ? cfg.find("shared_power_budget_w").asFloat64()
+                                             : 500.0;
     m_impl->sharedPowerLimiter.tightenRate
-        = cfg.check("limiter_tighten_rate")
-              ? cfg.find("limiter_tighten_rate").asFloat64()
-              : 10.0;
+        = cfg.check("limiter_tighten_rate") ? cfg.find("limiter_tighten_rate").asFloat64() : 10.0;
     m_impl->sharedPowerLimiter.releaseRate
-        = cfg.check("limiter_release_rate")
-              ? cfg.find("limiter_release_rate").asFloat64()
-              : 2.0;
-    m_impl->sharedPowerLimiter.eps
-        = cfg.check("limiter_eps")
-              ? cfg.find("limiter_eps").asFloat64()
-              : 1.0;
+        = cfg.check("limiter_release_rate") ? cfg.find("limiter_release_rate").asFloat64() : 2.0;
+    m_impl->sharedPowerLimiter.eps = cfg.check("limiter_eps") ? cfg.find("limiter_eps").asFloat64()
+                                                              : 1.0;
     m_impl->sharedPowerLimiter.alphaFiltered = 1.0;
 
     if (m_impl->sharedPowerLimiter.enabled)
@@ -2549,7 +2551,6 @@ bool CiA402MotionControl::open(yarp::os::Searchable& cfg)
            "%s current control strategy is %u",
            logPrefix,
            static_cast<unsigned>(currentStrategy));
-
 
     yCInfo(CIA402,
            "%s requested position strategy %u (%s)",
@@ -3019,16 +3020,19 @@ void CiA402MotionControl::run()
     /* ------------------------------------------------------------------
      * 1b. SHARED POWER LIMITER  (modulates 0x6072 Max Torque for all axes)
      * ------------------------------------------------------------------
-     * Reads actual torque (0x6077) and velocity (0x606C) from the feedback
+     * Reads torque demand (0x6074, t_ref – the output of the drive's internal
+     * position PID controller) and measured velocity (0x606C) from the feedback
      * snapshot of the *previous* cycle, computes the total positive mechanical
      * power, and derives a single scale factor alpha ∈ [0,1] applied uniformly
      * to every axis's base Max Torque.  An asymmetric rate limiter makes
      * tightening faster than release to avoid transient power spikes.
      *
-     * NOTE: the monitoring signal is 0x6077 (Torque actual value), NOT 0x60FA
-     * (Control effort).  In CSP + simple PID, 0x60FA is defined as "the output
-     * of the velocity control loop", which does not exist in simple PID mode.
-     * Using the actual measured torque is both robust and always available.
+     * NOTE: the monitoring signal is 0x6074 (Torque demand value), which in
+     * CSP mode represents the desired torque produced by the position controller
+     * (simple PID or cascaded PID).  This is preferred over 0x6077 (actual
+     * torque) because it reflects the controller's intent and reacts faster
+     * to load changes.  If 0x6074 is not mapped, readFeedback() falls back
+     * to 0x6077 so the limiter still works.
      *
      * LIMITATION: positive mechanical power (tau * omega) underestimates the
      * electrical burden at low speed / stall where I²R losses dominate.  The
@@ -3050,7 +3054,8 @@ void CiA402MotionControl::run()
             // we are still inside the run-guard mutex.
             for (size_t j = 0; j < m_impl->numAxes; ++j)
             {
-                const double tauJoint = m_impl->variables.jointTorques[j]; // [Nm]
+                // Use torque demand (0x6074, PID output) instead of measured torque
+                const double tauJoint = m_impl->variables.jointTorqueDemands[j]; // [Nm]
                 const double omegaJoint
                     = m_impl->variables.jointVelocities[j] * kDegToRad; // [rad/s]
                 const double pMech = tauJoint * omegaJoint; // [W]
@@ -3104,8 +3109,8 @@ void CiA402MotionControl::run()
         {
             const int slaveIdx = m_impl->firstSlave + static_cast<int>(j);
             auto* rx = m_impl->ethercatManager.getRxPDO(slaveIdx);
-            rx->MaxTorque = static_cast<uint16_t>(std::llround(
-                alpha * static_cast<double>(m_impl->baseMaxTorquePermille[j])));
+            rx->MaxTorque = static_cast<uint16_t>(
+                std::llround(alpha * static_cast<double>(m_impl->baseMaxTorquePermille[j])));
         }
     }
 
