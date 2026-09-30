@@ -26,6 +26,7 @@
 #ifndef YARP_DEV_CIA402_STATE_MACHINE_H
 #define YARP_DEV_CIA402_STATE_MACHINE_H
 
+#include <cstdint>
 #include <memory>
 #include <string_view>
 
