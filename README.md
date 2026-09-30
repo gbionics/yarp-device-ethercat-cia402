@@ -73,6 +73,8 @@ The `CiA402MotionControl` device accepts the following parameters.
 | `timing_window_ms` | list(double) | Yes | One item per axis. Position reached timing window in milliseconds (`0x6068`). |
 | `pos_limit_min_deg` | list(double) | Yes | One item per axis. Joint-side minimum limit in degrees. |
 | `pos_limit_max_deg` | list(double) | Yes | One item per axis. Joint-side maximum limit in degrees. |
+| `vel_limit_min_deg_s` | list(double) | No (pair) | One item per axis. Joint-side minimum velocity in deg/s reported by `getVelLimits()`. Must be provided together with `vel_limit_max_deg_s`. |
+| `vel_limit_max_deg_s` | list(double) | No (pair) | One item per axis. Joint-side maximum velocity in deg/s reported by `getVelLimits()`. Must be provided together with `vel_limit_min_deg_s`; minimum must be less than maximum for each axis. |
 | `use_position_limits_from_config` | list(bool) | Yes | One flag per axis. If `true`, write `0x607D` from config. If `false`, read `0x607D` from drive and use that. |
 | `axes_names` | list(string) | Yes | One name per axis, returned by axis info APIs. |
 | `first_slave` | int | No | First EtherCAT slave index. Default: `1`. |
@@ -86,6 +88,12 @@ The `CiA402MotionControl` device accepts the following parameters.
 | `max_torque_joint_nm` | list(double) | No | Optional joint-side maximum torque in Nm. If provided, each value is converted to motor side and written to `0x6072:00` (per-thousand of `0x6076`). If omitted, the value already stored in the drive is used. |
 
 All list parameters must contain exactly `num_axes` elements.
+
+The optional velocity limits are reported through `IControlLimits` to clients such as
+`yarpmotorgui` to configure their velocity slider range. They do not clamp velocity commands
+or program drive limits. If both parameters are omitted, `getVelLimits()` returns `false`,
+preserving the behavior for configurations without velocity limits. Runtime updates through
+`setVelLimits()` are not supported.
 
 To select the drive internal position controller structure, configure:
 
