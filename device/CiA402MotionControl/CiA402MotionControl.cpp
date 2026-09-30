@@ -168,7 +168,11 @@ struct CiA402MotionControl::Impl
         std::vector<int> active; // what the drive is really doing
         std::vector<int> cstFlavor; // custom flavor for each axis (torque/current)
         std::vector<int> prevCstFlavor; // previous flavor, for change detection
-        mutable std::mutex mutex; // protects *both* vectors
+        // Each FORCE_IDLE request produces one independent CiA-402 fault-reset edge.
+        // Retries are explicit: a protection fault may require the caller to retry after
+        // checking that its physical cause has cleared.
+        std::vector<bool> faultResetPending;
+        mutable std::mutex mutex; // protects all fields in this structure
 
         void resize(std::size_t n)
         {
@@ -176,6 +180,7 @@ struct CiA402MotionControl::Impl
             active = target;
             cstFlavor.assign(n, VOCAB_CM_UNKNOWN);
             prevCstFlavor = cstFlavor;
+            faultResetPending.assign(n, false);
         }
     };
     ControlModeState controlModeState;
@@ -2912,13 +2917,20 @@ void CiA402MotionControl::run()
             if (m_impl->controlModeState.active[j] == VOCAB_CM_HW_FAULT
                 && tgt == VOCAB_CM_FORCE_IDLE)
             {
-                const auto cmd = m_impl->sm[j]->faultReset(); // CW=0x0080
-                rx->Controlword = cmd.controlword;
-                rx->OpMode = 0; // neutral
-                // Clear user setpoints/latches immediately
-                m_impl->setPoints.reset((int)j);
-                m_impl->velLatched[j] = m_impl->trqLatched[j] = m_impl->currLatched[j] = false;
-                continue; // skip normal update-path this cycle
+                if (m_impl->controlModeState.faultResetPending[j])
+                {
+                    // Pulse Controlword bit 7 once, then return to IDLE so a later FORCE_IDLE
+                    // request creates a new rising edge instead of holding reset asserted.
+                    const auto cmd = m_impl->sm[j]->faultReset(); // CW=0x0080
+                    rx->Controlword = cmd.controlword;
+                    rx->OpMode = 0; // neutral
+                    m_impl->setPoints.reset(static_cast<int>(j));
+                    m_impl->velLatched[j] = m_impl->trqLatched[j] = m_impl->currLatched[j]
+                        = false;
+                    m_impl->controlModeState.faultResetPending[j] = false;
+                    m_impl->controlModeState.target[j] = VOCAB_CM_IDLE;
+                    continue; // the next cycle releases Controlword bit 7
+                }
             }
 
             /* ------------ normal control-mode path --------------------- */
@@ -3585,6 +3597,7 @@ bool CiA402MotionControl::setControlMode(const int j, const int mode)
 
     std::lock_guard<std::mutex> l(m_impl->controlModeState.mutex);
     m_impl->controlModeState.target[j] = mode;
+    m_impl->controlModeState.faultResetPending[j] = (mode == VOCAB_CM_FORCE_IDLE);
     if (mode == VOCAB_CM_CURRENT || mode == VOCAB_CM_TORQUE)
     {
         m_impl->controlModeState.cstFlavor[j] = mode;
@@ -3614,6 +3627,8 @@ bool CiA402MotionControl::setControlModes(const int n, const int* joints, int* m
             return false;
         }
         m_impl->controlModeState.target[joints[k]] = modes[k];
+        m_impl->controlModeState.faultResetPending[joints[k]]
+            = (modes[k] == VOCAB_CM_FORCE_IDLE);
 
         if (modes[k] == VOCAB_CM_CURRENT || modes[k] == VOCAB_CM_TORQUE)
         {
@@ -3635,6 +3650,8 @@ bool CiA402MotionControl::setControlModes(int* modes)
 
     for (size_t j = 0; j < m_impl->numAxes; ++j)
     {
+        m_impl->controlModeState.faultResetPending[j]
+            = (m_impl->controlModeState.target[j] == VOCAB_CM_FORCE_IDLE);
         if (m_impl->controlModeState.target[j] == VOCAB_CM_CURRENT
             || m_impl->controlModeState.target[j] == VOCAB_CM_TORQUE)
         {
